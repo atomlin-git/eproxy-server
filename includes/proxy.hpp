@@ -136,7 +136,7 @@ class client
 
         std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
         std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
-        std::pair <sockaddr_in, int> get_tpc_data() { return tcp_data; };
+        std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
     private:
         unsigned short forwarder;
         proxys::pstates client_state;
@@ -218,7 +218,7 @@ class proxy
             if (!person) return false;
             unsigned char packet[10] = { 0x00, 0x00, 0x00, 0x01 };
             unsigned char packet_buffer[4096] = { 0 };
-            unsigned int person_binary_address = person->get_tpc_data().first.sin_addr.S_un.S_addr;
+            unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
             proxys::pstates state = person->get_state();
 
