@@ -207,7 +207,8 @@ class proxy
         bool network_tcp(std::shared_ptr<client> person)
         {
             if(!person) return false;
-            while (std::shared_ptr<proxys::data> buf = person->read())
+            std::shared_ptr<proxys::data> buf = 0;
+            while (buf = person->read())
                 std::thread([this, person, &buf] {proxyfy(person, buf); }).detach();
 
             return person_destroy(person);
@@ -221,8 +222,9 @@ class proxy
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
             proxys::pstates state = person->get_state();
+            std::shared_ptr<proxys::data> buf = 0;
 
-            while (std::shared_ptr<proxys::data> buf = person->read_personal())
+            while (buf = person->read_personal())
             {
                 if (state == proxys::state_tcp_proxyfy)
                 {
@@ -233,10 +235,7 @@ class proxy
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) // request from client to server (udp)
                 {
                     if (buf->length <= 10) continue;
-
-                    if(!person->get_forwarder())
-                        person->set_forwarder(htons(buf->addr.sin_port));
-
+                    person->set_forwarder(htons(buf->addr.sin_port));
                     person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
                     continue;
                 }
@@ -248,7 +247,6 @@ class proxy
 
                 memcpy(packet_buffer, packet, 10);
                 memcpy(&packet_buffer[10], buf->data, buf->length);
-
                 person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_forwarder());
             };
 
