@@ -46,9 +46,9 @@ class client
         std::shared_ptr <proxys::data> read()
         {
             if (tcp_data.second == -1) return 0;
-            unsigned char buffer[65536] = { 0 };
+            unsigned char buffer[524288] = { 0 };
 
-            int length = recv(tcp_data.second, (char*)buffer, 65536, 0);
+            int length = recv(tcp_data.second, (char*)buffer, 524288, 0);
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -63,11 +63,11 @@ class client
         {
             if (personal_proxy_data.first == -1) return 0;
 
-            unsigned char buffer[65536] = { 0 };
+            unsigned char buffer[524288] = { 0 };
             struct sockaddr_in client = { 0 };
             int clientlength = sizeof(client);
 
-            int length = recvfrom(personal_proxy_data.first, (char*)buffer, 65536, 0, (sockaddr*)&client, &clientlength);
+            int length = recvfrom(personal_proxy_data.first, (char*)buffer, 524288, 0, (sockaddr*)&client, &clientlength);
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -79,14 +79,14 @@ class client
             return buf;
         };
 
-        bool send_data(unsigned char* data, unsigned short length)
+        bool send_data(unsigned char* data, unsigned int length)
         {
             if (!data) return false;
             if (send(tcp_data.second, (char*)data, length, 0) == -1) return false;
             return true;
         };
 
-        bool send_personal(unsigned char* data, unsigned short length, unsigned int address, unsigned short port)
+        bool send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
         {
             if (!data || personal_proxy_data.first == -1) return false;
             struct sockaddr_in send = { 0 };
@@ -109,14 +109,7 @@ class client
             
             if (proto == 0)
             {
-                struct timeval timeval_timeout = { 0 };
-                struct fd_set  rfds = { 0 };
                 unsigned long timeout = 1000;
-
-                timeval_timeout.tv_sec = 5;
-                timeval_timeout.tv_usec = 0;
-
-                if (select(personal_proxy_data.first + 1, &rfds, NULL, NULL, &timeval_timeout) <= 0) return false;
                 if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) == -1) return false;
                 if (connect(personal_proxy_data.first, (sockaddr*)&addr, sizeof(sockaddr)) == -1) return false;
             } else bind(personal_proxy_data.first, (sockaddr*)&addr, sizeof(addr));
@@ -218,7 +211,7 @@ class proxy
         {
             if (!person) return false;
             unsigned char packet[10] = { 0x00, 0x00, 0x00, 0x01 };
-            unsigned char packet_buffer[4096] = { 0 };
+            unsigned char packet_buffer[65536] = { 0 };
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
             proxys::pstates state = person->get_state();
@@ -384,6 +377,7 @@ class proxy
 
         bool person_destroy(std::shared_ptr<client> person) {
             if(!person) return false; 
+            if(!clients.size()) return false;
             clients.erase(std::remove(clients.begin(), clients.end(), person), clients.end());
             return true;
         };
