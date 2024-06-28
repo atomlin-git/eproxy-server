@@ -52,8 +52,7 @@ class client
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
-            buf->data = new unsigned char[length];
-            memcpy(buf->data, buffer, length);
+            buf->data = buffer;
             buf->length = length;
 
             return buf;
@@ -71,8 +70,7 @@ class client
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
-            buf->data = new unsigned char[length];
-            memcpy(buf->data, buffer, length);
+            buf->data = buffer;
             buf->length = length;
             buf->addr = client;
 
