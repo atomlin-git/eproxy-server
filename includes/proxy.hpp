@@ -202,7 +202,7 @@ class proxy
             if(!person) return false;
             std::shared_ptr<proxys::data> buf = 0;
             while (buf = person->read())
-                std::thread([this, person, &buf] {proxyfy(person, buf); }).detach();
+                this->proxyfy(person, buf);
 
             return person_destroy(person);
         };
