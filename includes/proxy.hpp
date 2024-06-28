@@ -23,6 +23,11 @@ namespace proxys
         unsigned int length;
         unsigned char* data;
         struct sockaddr_in addr;
+        
+        public:
+            ~data() {
+                delete [] data;
+            };
     };
 };
 
@@ -179,7 +184,6 @@ class proxy
             while (sock != -1)
             {
                 sockaddr_in client_addr = { 0 };
-
                 int clientsock = accept(sock, (struct sockaddr*)&client_addr, &addrlen);
                 if (clientsock == -1) continue;
 
@@ -188,7 +192,7 @@ class proxy
                     struct sockaddr_in saddr = { 0 };
                     int s = sizeof(saddr);
                     getsockname(clientsock, reinterpret_cast<struct sockaddr*>(&saddr), &s);
-                    local_ipv4 = saddr.sin_addr.s_addr;
+                    local_ipv4 = saddr.sin_addr.S_un.S_addr;
                 }
 
                 std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
