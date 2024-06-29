@@ -173,26 +173,25 @@ class proxy
     private:
         void accepts()
         {
-            int addrlen = sizeof(sockaddr);
+            int client_addr_len = sizeof(sockaddr);
             while (sock != -1)
             {
-                sockaddr_in client_addr = { 0 };
+                struct sockaddr_in client_addr = { 0 };
 
-                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &addrlen);
-                if (clientsock == -1) continue;
+                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len);
+                if (clientsock < 0) continue;
 
                 if (local_ipv4 <= 0)
                 {
-                    struct sockaddr_in saddr = { 0 };
-                    int s = sizeof(saddr);
-                    getsockname(clientsock, reinterpret_cast<struct sockaddr*>(&saddr), &s);
-                    local_ipv4 = saddr.sin_addr.s_addr;
+                    struct sockaddr_in local_addr = { 0 };
+                    getsockname(clientsock, (struct sockaddr*)&local_addr, &client_addr_len);
+                    local_ipv4 = local_addr.sin_addr.S_un.S_addr;
                 }
 
                 std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
                 clients.emplace_back(person);
                 std::thread([this, person] {network_tcp(person); }).detach();
-            }
+            };
         };
 
         bool network_tcp(std::shared_ptr<client> person)
