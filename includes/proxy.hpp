@@ -46,9 +46,9 @@ class client
         std::shared_ptr <proxys::data> read()
         {
             if (tcp_data.second == -1) return 0;
-            unsigned char buffer[524288] = { 0 };
+            unsigned char buffer[4096] = { 0 };
 
-            int length = recv(tcp_data.second, (char*)buffer, 524288, 0);
+            int length = recv(tcp_data.second, (char*)buffer, 4096, 0);
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -62,11 +62,14 @@ class client
         {
             if (personal_proxy_data.first == -1) return 0;
 
-            unsigned char buffer[524288] = { 0 };
+            unsigned char buffer[4096] = { 0 };
             struct sockaddr_in client = { 0 };
             int clientlength = sizeof(client);
+            int length = -1;
 
-            int length = recvfrom(personal_proxy_data.first, (char*)buffer, 524288, 0, (sockaddr*)&client, &clientlength);
+            if(client_state == proxys::state_tcp_proxyfy)
+                length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
+                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &clientlength);
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -80,21 +83,23 @@ class client
         bool send_data(unsigned char* data, unsigned int length)
         {
             if (!data) return false;
-            if (send(tcp_data.second, (char*)data, length, 0) == -1) return false;
-            return true;
+            return send(tcp_data.second, (char*)data, length, 0);
         };
 
         bool send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
         {
             if (!data || personal_proxy_data.first == -1) return false;
+            if (client_state == proxys::state_tcp_proxyfy) return send(personal_proxy_data.first, (char*)data, length, 0);
+
             struct sockaddr_in send = { 0 };
             send.sin_family = AF_INET;
             send.sin_port = htons(port);
             send.sin_addr.S_un.S_addr = address;
+
             return sendto(personal_proxy_data.first, (char*)data, length, 0, (sockaddr*)&send, sizeof(sockaddr_in));
         };
 
-        bool init_personal(unsigned short port, unsigned char proto)
+        bool init_personal(unsigned char proto)
         {
             if (personal_proxy_data.first != -1) return false;
             personal_proxy_data.first = socket(AF_INET, (proto == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM, proto);
@@ -103,16 +108,21 @@ class client
             struct sockaddr_in addr = { 0 };
             addr.sin_family = AF_INET;
             addr.sin_addr.S_un.S_addr = (proto == IPPROTO_UDP) ? INADDR_ANY : dst_data.first;
-            addr.sin_port = htons((proto == IPPROTO_UDP) ? port : htons(dst_data.second));
+            addr.sin_port = htons((proto == IPPROTO_UDP) ? 0 : htons(dst_data.second));
             
             if (proto == 0)
             {
-                unsigned long timeout = 1000;
+                unsigned long timeout = 10000;
                 if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) == -1) return false;
                 if (connect(personal_proxy_data.first, (sockaddr*)&addr, sizeof(sockaddr)) == -1) return false;
-            } else bind(personal_proxy_data.first, (sockaddr*)&addr, sizeof(addr));
+                personal_proxy_data.second = htons(dst_data.second);
+            } else {
+                int addr_size = sizeof(addr);
+                if (bind(personal_proxy_data.first, (sockaddr*)&addr, sizeof(addr)) == -1) return false;
+                if (getsockname(personal_proxy_data.first, (struct sockaddr*)&addr, &addr_size) == -1) return false;
+                personal_proxy_data.second = htons(addr.sin_port);
+            };
 
-            personal_proxy_data.second = (proto == IPPROTO_UDP) ? port : htons(dst_data.second);
             return true;
         };
 
@@ -140,18 +150,17 @@ class client
 class proxy
 {
     public:
-        proxy(unsigned short port) {
-            if(!port) return;
-
+        proxy(unsigned short port) 
+        {
             WSADATA wsaData = { 0 };
             WSAStartup(MAKEWORD(2, 2), &wsaData);
 
             sock = socket(AF_INET, SOCK_STREAM, 0);
-            if (!sock) return;
+            if (sock == -1) return;
 
             struct sockaddr_in sockaddr = { 0 };
             sockaddr.sin_family = AF_INET;
-            sockaddr.sin_addr.s_addr = INADDR_ANY;
+            sockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
             sockaddr.sin_port = htons(port);
 
             if (bind(sock, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) == -1) return;
@@ -198,8 +207,7 @@ class proxy
         {
             if(!person) return false;
             std::shared_ptr<proxys::data> buf = 0;
-            while (buf = person->read())
-                this->proxyfy(person, buf);
+            while (buf = person->read()) this->proxyfy(person, buf);
 
             return person_destroy(person);
         };
@@ -302,7 +310,6 @@ class proxy
                     if (strcmp(auth_data.first.c_str(), (char*)recved_username)) return person_destroy(person);
                     if (strcmp(auth_data.second.c_str(), (char*)recved_password)) return person_destroy(person);
 
-                    packet[1] = 0x00;
                     person->update_state(proxys::state_authorization_passed);
                     person->send_data(packet, 2);
                     break;
@@ -319,37 +326,46 @@ class proxy
                         return person_destroy(person);
                     };
 
-                    if (buf->data[3] == 0x03)
+                    switch(buf->data[3])
                     {
-                        char hostname[256] = { 0 };
-                        memcpy(&hostname[0], &buf->data[5], buf->data[4]);
+                        case 0x01: // ipv4
+                        {
+                            person->set_dst_addr(*(unsigned int*)&buf->data[4]);
+                            break;
+                        }
 
-                        struct addrinfo hints, *res;
-                        memset(&hints, 0, sizeof(hints));
-                        hints.ai_family = AF_INET;
-                        hints.ai_socktype = SOCK_STREAM;
+                        case 0x03: // domain name
+                        {
+                            char hostname[256] = { 0 };
+                            memcpy(&hostname[0], &buf->data[5], buf->data[4]);
 
-                        if (getaddrinfo(hostname, NULL, &hints, &res) != 0) return person_destroy(person);
+                            struct addrinfo hints, *res;
+                            memset(&hints, 0, sizeof(hints));
+                            hints.ai_family = AF_INET;
+                            hints.ai_socktype = SOCK_STREAM;
 
-                        struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
-                        person->set_dst_addr((unsigned int)ipv4->sin_addr.S_un.S_addr);
-                        freeaddrinfo(res);
-                    }
-                    else person->set_dst_addr(*(unsigned int*)&buf->data[4]);
+                            if (getaddrinfo(hostname, NULL, &hints, &res) != 0) return person_destroy(person);
+
+                            struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
+                            person->set_dst_addr((unsigned int)ipv4->sin_addr.S_un.S_addr);
+                            freeaddrinfo(res);
+                            break;
+                        }
+
+                        default: return person_destroy(person); // ipv6 and other unk parameters
+                    };
+
                     person->set_dst_port(*(unsigned short*)&buf->data[buf->length - 2]);
 
-                    std::srand(std::time(nullptr));
                     bool is_udp = buf->data[1] == 0x03;
-
-                    if (!person->init_personal(std::rand() % 65535, is_udp ? IPPROTO_UDP : 0))
+                    if (!person->init_personal(is_udp ? IPPROTO_UDP : 0))
                     {
                         unsigned char error[10] = { 0x05, 0x01 };
                         person->send_data(error, 10);
                         return person_destroy(person);
                     };
 
-                    if (!is_udp) 
-                        person->update_state(proxys::state_tcp_proxyfy);
+                    if (!is_udp) person->update_state(proxys::state_tcp_proxyfy);
 
                     unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
                     *(unsigned int*)&packet[4] = local_ipv4;
