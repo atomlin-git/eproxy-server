@@ -24,6 +24,25 @@ namespace proxys
         unsigned char* data;
         struct sockaddr_in addr;
     };
+
+    // proxy structures
+    #pragma pack(push, 1)
+        struct handshake
+        {
+            unsigned char protocol_version;
+            unsigned char method_count;
+            unsigned char auth_methods[];
+        };
+
+        struct request
+        {
+            unsigned char protocol_version;
+            unsigned char command;
+            unsigned char rsv;
+            unsigned char address_type;
+            unsigned char data[];
+        };
+    #pragma pack(pop)
 };
 
 class client
@@ -261,38 +280,40 @@ class proxy
                 case proxys::state_inited:
                 {
                     if (buf->length < 3) return person_destroy(person);
-                    if (buf->data[0] != 0x05) return person_destroy(person);
-                    unsigned char packet[2] = { 0x05, 0xFF };
+                    proxys::handshake* handshake = (proxys::handshake*)(buf->data);
+                    if(handshake->protocol_version != 0x05) return person_destroy(person);
 
-                    for (unsigned char i = 2; i < (buf->data[1] + 2); i++)
+                    unsigned char packet[2] = { 0x05, 0xFF };
+                    for (unsigned char i = 0; i < handshake->method_count; i++)
                     {
-                        switch(buf->data[i])
+                        switch(handshake->auth_methods[i])
                         {
-                            case 0x02:
-                            {
-                                if (!auth_data.first.empty() && !auth_data.second.empty())
-                                {
-                                    packet[1] = 0x02;
-                                    person->update_state(proxys::state_authorization_rfc1929);
-                                    person->send_data(packet, 2);
-                                    return true;
-                                };
-                            };
                             case 0x00:
                             {
                                 if (auth_data.first.empty() || auth_data.second.empty())
                                 {
                                     packet[1] = 0x00;
                                     person->update_state(proxys::state_authorization_passed);
-                                    person->send_data(packet, 2);
-                                    return true;
-                                };
+                                    return person->send_data(packet, 2);
+                                }
+
+                                break;
                             };
-                        };
+                            case 0x02:
+                            {
+                                if (!auth_data.first.empty() && !auth_data.second.empty())
+                                {
+                                    packet[1] = 0x02;
+                                    person->update_state(proxys::state_authorization_rfc1929);
+                                    return person->send_data(packet, 2);
+                                }
+
+                                break;
+                            };
+                        }
                     };
 
-                    person->send_data(packet, 2);
-                    break;
+                    return person->send_data(packet, 2);
                 };
 
                 case proxys::state_authorization_rfc1929:
@@ -311,35 +332,32 @@ class proxy
                     if (strcmp(auth_data.second.c_str(), (char*)recved_password)) return person_destroy(person);
 
                     person->update_state(proxys::state_authorization_passed);
-                    person->send_data(packet, 2);
-                    break;
+                    return person->send_data(packet, 2);
                 };
 
                 case proxys::state_authorization_passed:
                 {
                     if (buf->length < 10) return person_destroy(person);
-                    if (buf->data[0] != 0x05) return person_destroy(person);
-                    if (buf->data[1] != 0x03 && buf->data[1] != 0x01)
-                    {
-                        unsigned char error[10] = { 0x05, 0x07 };
-                        person->send_data(error, 10);
-                        return person_destroy(person);
-                    };
 
-                    switch(buf->data[3])
+                    proxys::request* request = (proxys::request*)(buf->data);
+                    if(request->protocol_version != 0x05) return person_destroy(person);
+                    if(request->command != 0x03 && request->command != 0x01) return person_destroy(person);
+                    if(request->rsv != 0x00) return person_destroy(person);
+
+                    switch(request->address_type)
                     {
                         case 0x01: // ipv4
                         {
-                            person->set_dst_addr(*(unsigned int*)&buf->data[4]);
+                            person->set_dst_addr(*(unsigned int*)&request->data[0]);
                             break;
                         }
 
                         case 0x03: // domain name
                         {
                             char hostname[256] = { 0 };
-                            memcpy(&hostname[0], &buf->data[5], buf->data[4]);
+                            memcpy(hostname, &request->data[1], request->data[0]);
 
-                            struct addrinfo hints, *res;
+                            struct addrinfo hints, *res = 0;
                             memset(&hints, 0, sizeof(hints));
                             hints.ai_family = AF_INET;
                             hints.ai_socktype = SOCK_STREAM;
@@ -357,7 +375,7 @@ class proxy
 
                     person->set_dst_port(*(unsigned short*)&buf->data[buf->length - 2]);
 
-                    bool is_udp = buf->data[1] == 0x03;
+                    bool is_udp = request->command == 0x03;
                     if (!person->init_personal(is_udp ? IPPROTO_UDP : 0))
                     {
                         unsigned char error[10] = { 0x05, 0x01 };
@@ -384,14 +402,14 @@ class proxy
 
                 default: return person_destroy(person);
             }
-
             return true;
         };
 
         bool person_destroy(std::shared_ptr<client> person) {
             if(!person) return false; 
             if(!clients.size()) return false;
-            clients.erase(std::remove(clients.begin(), clients.end(), person), clients.end());
+            std::erase_if(clients, [](const std::shared_ptr<client>& ptr) { return ptr; });
+            person.reset();
             return true;
         };
 
