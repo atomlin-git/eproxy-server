@@ -12,7 +12,7 @@ namespace proxys
 {
     enum pstates
     {
-        state_inited = 0,
+        state_handshake = 0,
         state_authorization_passed = 1,
         state_authorization_rfc1929 = 2,
         state_tcp_proxyfy = 3,
@@ -52,7 +52,7 @@ class client
             tcp_data.first = addr;
             tcp_data.second = sock;
 
-            client_state = proxys::state_inited;
+            client_state = proxys::state_handshake;
 
             personal_proxy_data.first = -1;
             personal_proxy_data.second = 0;
@@ -277,7 +277,7 @@ class proxy
 
             switch (state)
             {
-                case proxys::state_inited:
+                case proxys::state_handshake:
                 {
                     if (buf->length < 3) return person_destroy(person);
                     proxys::handshake* handshake = (proxys::handshake*)(buf->data);
