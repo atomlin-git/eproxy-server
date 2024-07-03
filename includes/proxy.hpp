@@ -8,12 +8,14 @@
 #include <string>
 #include <vector>
 
+static int sockaddr_size = 16; 
+
 namespace proxys
 {
-    enum pstates
+    enum states
     {
-        state_inited = 0,
-        state_authorization_passed = 1,
+        state_handshake = 0,
+        state_connection_request = 1,
         state_authorization_rfc1929 = 2,
         state_tcp_proxyfy = 3,
     };
@@ -24,6 +26,25 @@ namespace proxys
         unsigned char* data;
         struct sockaddr_in addr;
     };
+
+    // proxy structures
+    #pragma pack(push, 1)
+        struct handshake
+        {
+            unsigned char protocol_version;
+            unsigned char method_count;
+            unsigned char auth_methods[];
+        };
+
+        struct request
+        {
+            unsigned char protocol_version;
+            unsigned char command;
+            unsigned char rsv;
+            unsigned char address_type;
+            unsigned char data[];
+        };
+    #pragma pack(pop)
 };
 
 class client
@@ -33,7 +54,8 @@ class client
             tcp_data.first = addr;
             tcp_data.second = sock;
 
-            client_state = proxys::state_inited;
+            client_state = proxys::state_handshake;
+            forwarder_port = 0;
 
             personal_proxy_data.first = -1;
             personal_proxy_data.second = 0;
@@ -64,12 +86,11 @@ class client
 
             unsigned char buffer[4096] = { 0 };
             struct sockaddr_in client = { 0 };
-            int clientlength = sizeof(client);
             int length = -1;
 
             if(client_state == proxys::state_tcp_proxyfy)
                 length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
-                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &clientlength);
+                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size);            
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -80,13 +101,13 @@ class client
             return buf;
         };
 
-        bool send_data(unsigned char* data, unsigned int length)
+        int send_data(unsigned char* data, unsigned int length)
         {
-            if (!data) return false;
+            if (!data || tcp_data.second == -1) return false;
             return send(tcp_data.second, (char*)data, length, 0);
         };
 
-        bool send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
+        int send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
         {
             if (!data || personal_proxy_data.first == -1) return false;
             if (client_state == proxys::state_tcp_proxyfy) return send(personal_proxy_data.first, (char*)data, length, 0);
@@ -96,7 +117,7 @@ class client
             send.sin_port = htons(port);
             send.sin_addr.S_un.S_addr = address;
 
-            return sendto(personal_proxy_data.first, (char*)data, length, 0, (sockaddr*)&send, sizeof(sockaddr_in));
+            return sendto(personal_proxy_data.first, (char*)data, length, 0, (sockaddr*)&send, sockaddr_size);
         };
 
         bool init_personal(unsigned char proto)
@@ -113,13 +134,12 @@ class client
             if (proto == 0)
             {
                 unsigned long timeout = 10000;
-                if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) == -1) return false;
-                if (connect(personal_proxy_data.first, (sockaddr*)&addr, sizeof(sockaddr)) == -1) return false;
+                if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, 4) == -1) return false;
+                if (connect(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(dst_data.second);
             } else {
-                int addr_size = sizeof(addr);
-                if (bind(personal_proxy_data.first, (sockaddr*)&addr, sizeof(addr)) == -1) return false;
-                if (getsockname(personal_proxy_data.first, (struct sockaddr*)&addr, &addr_size) == -1) return false;
+                if (bind(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
+                if (getsockname(personal_proxy_data.first, (struct sockaddr*)&addr, &sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(addr.sin_port);
             };
 
@@ -129,18 +149,18 @@ class client
         void set_dst_port(unsigned short port) { dst_data.second = port; };
         void set_dst_addr(unsigned int addr) { dst_data.first = addr; };
 
-        void set_forwarder(int f) { forwarder = f; };
-        void update_state(proxys::pstates st) { client_state = st; };
+        void set_forwarder(int forwarder_ports) { forwarder_port = forwarder_ports; };
+        void update_state(proxys::states state) { client_state = state; };
 
-        unsigned short get_forwarder() { return forwarder; };
-        proxys::pstates get_state() { return client_state; };
+        unsigned short get_forwarder() { return forwarder_port; };
+        proxys::states get_state() { return client_state; };
 
         std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
         std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
         std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
     private:
-        unsigned short forwarder;
-        proxys::pstates client_state;
+        unsigned short forwarder_port;
+        proxys::states client_state;
 
         std::pair <unsigned int, unsigned short> dst_data; // addr, port
         std::pair <int, unsigned short> personal_proxy_data; // socket, socket port
@@ -163,11 +183,11 @@ class proxy
             sockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
             sockaddr.sin_port = htons(port);
 
-            if (bind(sock, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) == -1) return;
+            if (bind(sock, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
             if (listen(sock, SOMAXCONN) == -1) return;
 
             local_ipv4 = -1;
-            std::thread([this] {accepts(); }).detach();
+            std::thread([this]{accept_clients();}).detach();
         };
 
         bool set_auth_data(std::string login, std::string password)
@@ -180,21 +200,21 @@ class proxy
 
         ~proxy() { closesocket(sock); WSACleanup(); clients.clear(); };
     private:
-        void accepts()
+        void accept_clients()
         {
-            int client_addr_len = sizeof(sockaddr);
+            struct sockaddr_in client_addr = { 0 };
+            //static int client_addr_len = sizeof(sockaddr);
+
             while (sock != -1)
             {
-                struct sockaddr_in client_addr = { 0 };
-
-                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len);
-                if (clientsock < 0) continue;
+                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &sockaddr_size);
+                if (clientsock < 0) return;
 
                 if (local_ipv4 <= 0)
                 {
                     struct sockaddr_in local_addr = { 0 };
-                    getsockname(clientsock, (struct sockaddr*)&local_addr, &client_addr_len);
-                    local_ipv4 = local_addr.sin_addr.S_un.S_addr;
+                    if (getsockname(clientsock, (struct sockaddr*)&local_addr, &sockaddr_size) != -1)
+                        local_ipv4 = local_addr.sin_addr.S_un.S_addr;
                 }
 
                 std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
@@ -215,18 +235,17 @@ class proxy
         bool personal_network(std::shared_ptr<client> person)
         {
             if (!person) return false;
-            unsigned char packet[10] = { 0x00, 0x00, 0x00, 0x01 };
-            unsigned char packet_buffer[65536] = { 0 };
+            unsigned char packet_buffer[65536] = { 0x00, 0x00, 0x00, 0x01 };
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
-            proxys::pstates state = person->get_state();
+            proxys::states state = person->get_state();
             std::shared_ptr<proxys::data> buf = 0;
 
             while (buf = person->read_personal())
             {
                 if (state == proxys::state_tcp_proxyfy)
                 {
-                    person->send_data(buf->data, buf->length);
+                    if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
                 }
 
@@ -240,10 +259,9 @@ class proxy
                 
                 //request server to client (udp)
 
-                *(unsigned int*)&packet[4] = buf->addr.sin_addr.S_un.S_addr;
-                *(unsigned short*)&packet[8] = buf->addr.sin_port;
+                *(unsigned int*)&packet_buffer[4] = buf->addr.sin_addr.S_un.S_addr;
+                *(unsigned short*)&packet_buffer[8] = buf->addr.sin_port;
 
-                memcpy(packet_buffer, packet, 10);
                 memcpy(&packet_buffer[10], buf->data, buf->length);
                 person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_forwarder());
             };
@@ -254,92 +272,88 @@ class proxy
         bool proxyfy(std::shared_ptr<client> person, std::shared_ptr<proxys::data> buf)
         {
             if (!person || !buf) return false;
-            proxys::pstates state = person->get_state();
+            proxys::states state = person->get_state();
 
             switch (state)
             {
-                case proxys::state_inited:
+                case proxys::state_handshake:
                 {
                     if (buf->length < 3) return person_destroy(person);
-                    if (buf->data[0] != 0x05) return person_destroy(person);
-                    unsigned char packet[2] = { 0x05, 0xFF };
+                    proxys::handshake* handshake = (proxys::handshake*)(buf->data);
+                    if(handshake->protocol_version != 0x05) return person_destroy(person);
 
-                    for (unsigned char i = 2; i < (buf->data[1] + 2); i++)
+                    unsigned char packet[2] = { 0x05, 0xFF };
+                    for (unsigned char i = 0; i < handshake->method_count; i++)
                     {
-                        switch(buf->data[i])
+                        switch(handshake->auth_methods[i])
                         {
+                            case 0x00:
+                            {
+                                if (auth_data.first.empty() || auth_data.second.empty())
+                                {
+                                    packet[1] = 0x00;
+                                    person->update_state(proxys::state_connection_request);
+                                    return person->send_data(packet, 2);
+                                }
+
+                                break;
+                            };
                             case 0x02:
                             {
                                 if (!auth_data.first.empty() && !auth_data.second.empty())
                                 {
                                     packet[1] = 0x02;
                                     person->update_state(proxys::state_authorization_rfc1929);
-                                    person->send_data(packet, 2);
-                                    return true;
-                                };
+                                    return person->send_data(packet, 2);
+                                }
+
+                                break;
                             };
-                            case 0x00:
-                            {
-                                if (auth_data.first.empty() || auth_data.second.empty())
-                                {
-                                    packet[1] = 0x00;
-                                    person->update_state(proxys::state_authorization_passed);
-                                    person->send_data(packet, 2);
-                                    return true;
-                                };
-                            };
-                        };
+                        }
                     };
 
-                    person->send_data(packet, 2);
-                    break;
+                    return person->send_data(packet, 2);
                 };
 
                 case proxys::state_authorization_rfc1929:
                 {
-                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return person_destroy(person);
                     if (buf->data[0] != 0x01) return person_destroy(person);
+                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return person_destroy(person);
+                    if (buf->data[1] != auth_data.first.size() || buf->data[buf->data[1] + 2] != auth_data.second.size()) return person_destroy(person);
 
-                    unsigned char packet[2] = { 0x01 };
-                    unsigned char recved_username[64] = { 0 };
-                    unsigned char recved_password[64] = { 0 };
+                    unsigned char packet[2] = { 0x01, 0x00 };
+                    std::string incoming_username = { (char*)&buf->data[2], buf->data[1] };
+                    std::string incoming_password = { (char*)&buf->data[buf->data[1] + 3], buf->data[buf->data[1] + 2] };
 
-                    memcpy(recved_username, &buf->data[2], buf->data[1]);
-                    memcpy(recved_password, &buf->data[buf->data[1] + 3], buf->data[buf->data[1] + 2]);
+                    if((auth_data.first != incoming_username) || (auth_data.second != incoming_password)) return person_destroy(person);
 
-                    if (strcmp(auth_data.first.c_str(), (char*)recved_username)) return person_destroy(person);
-                    if (strcmp(auth_data.second.c_str(), (char*)recved_password)) return person_destroy(person);
-
-                    person->update_state(proxys::state_authorization_passed);
-                    person->send_data(packet, 2);
-                    break;
+                    person->update_state(proxys::state_connection_request);
+                    return person->send_data(packet, 2);
                 };
 
-                case proxys::state_authorization_passed:
+                case proxys::state_connection_request:
                 {
                     if (buf->length < 10) return person_destroy(person);
-                    if (buf->data[0] != 0x05) return person_destroy(person);
-                    if (buf->data[1] != 0x03 && buf->data[1] != 0x01)
-                    {
-                        unsigned char error[10] = { 0x05, 0x07 };
-                        person->send_data(error, 10);
-                        return person_destroy(person);
-                    };
 
-                    switch(buf->data[3])
+                    proxys::request* request = (proxys::request*)(buf->data);
+                    if(request->protocol_version != 0x05) return person_destroy(person);
+                    if(request->command != 0x03 && request->command != 0x01) return person_destroy(person);
+                    if(request->rsv != 0x00) return person_destroy(person);
+
+                    switch(request->address_type)
                     {
                         case 0x01: // ipv4
                         {
-                            person->set_dst_addr(*(unsigned int*)&buf->data[4]);
+                            person->set_dst_addr(*(unsigned int*)&request->data[0]);
                             break;
-                        }
+                        };
 
                         case 0x03: // domain name
                         {
                             char hostname[256] = { 0 };
-                            memcpy(&hostname[0], &buf->data[5], buf->data[4]);
+                            memcpy(hostname, &request->data[1], request->data[0]);
 
-                            struct addrinfo hints, *res;
+                            struct addrinfo hints, *res = 0;
                             memset(&hints, 0, sizeof(hints));
                             hints.ai_family = AF_INET;
                             hints.ai_socktype = SOCK_STREAM;
@@ -350,14 +364,14 @@ class proxy
                             person->set_dst_addr((unsigned int)ipv4->sin_addr.S_un.S_addr);
                             freeaddrinfo(res);
                             break;
-                        }
+                        };
 
                         default: return person_destroy(person); // ipv6 and other unk parameters
                     };
 
                     person->set_dst_port(*(unsigned short*)&buf->data[buf->length - 2]);
 
-                    bool is_udp = buf->data[1] == 0x03;
+                    bool is_udp = request->command == 0x03;
                     if (!person->init_personal(is_udp ? IPPROTO_UDP : 0))
                     {
                         unsigned char error[10] = { 0x05, 0x01 };
@@ -367,23 +381,23 @@ class proxy
 
                     if (!is_udp) person->update_state(proxys::state_tcp_proxyfy);
 
+                    std::thread([this, person] {personal_network(person); }).detach();
+
                     unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
                     *(unsigned int*)&packet[4] = local_ipv4;
                     *(unsigned short*)&packet[8] = htons(person->get_proxy_data().second);
-                    person->send_data(packet, 10);
-
-                    std::thread([this, person] {personal_network(person); }).detach();
-                    break;
+                    
+                    return person->send_data(packet, 10);
                 };
 
                 case proxys::state_tcp_proxyfy:
-                {
-                    person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second);
+                {   
+                    if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
                     break;
                 };
 
                 default: return person_destroy(person);
-            }
+            };
 
             return true;
         };
@@ -391,7 +405,8 @@ class proxy
         bool person_destroy(std::shared_ptr<client> person) {
             if(!person) return false; 
             if(!clients.size()) return false;
-            clients.erase(std::remove(clients.begin(), clients.end(), person), clients.end());
+            std::erase_if(clients, [](const std::shared_ptr<client>& ptr) { return ptr; });
+            person.reset();
             return true;
         };
 
