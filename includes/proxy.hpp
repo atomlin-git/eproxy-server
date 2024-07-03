@@ -10,7 +10,7 @@
 
 namespace proxys
 {
-    enum pstates
+    enum states
     {
         state_handshake = 0,
         state_authorization_passed = 1,
@@ -149,17 +149,17 @@ class client
         void set_dst_addr(unsigned int addr) { dst_data.first = addr; };
 
         void set_forwarder(int f) { forwarder = f; };
-        void update_state(proxys::pstates st) { client_state = st; };
+        void update_state(proxys::states st) { client_state = st; };
 
         unsigned short get_forwarder() { return forwarder; };
-        proxys::pstates get_state() { return client_state; };
+        proxys::states get_state() { return client_state; };
 
         std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
         std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
         std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
     private:
         unsigned short forwarder;
-        proxys::pstates client_state;
+        proxys::states client_state;
 
         std::pair <unsigned int, unsigned short> dst_data; // addr, port
         std::pair <int, unsigned short> personal_proxy_data; // socket, socket port
@@ -238,7 +238,7 @@ class proxy
             unsigned char packet_buffer[65536] = { 0 };
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
-            proxys::pstates state = person->get_state();
+            proxys::states state = person->get_state();
             std::shared_ptr<proxys::data> buf = 0;
 
             while (buf = person->read_personal())
@@ -273,7 +273,7 @@ class proxy
         bool proxyfy(std::shared_ptr<client> person, std::shared_ptr<proxys::data> buf)
         {
             if (!person || !buf) return false;
-            proxys::pstates state = person->get_state();
+            proxys::states state = person->get_state();
 
             switch (state)
             {
@@ -318,18 +318,15 @@ class proxy
 
                 case proxys::state_authorization_rfc1929:
                 {
-                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return person_destroy(person);
                     if (buf->data[0] != 0x01) return person_destroy(person);
+                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return person_destroy(person);
+                    if (buf->data[1] != auth_data.first.size() || buf->data[buf->data[1] + 2] != auth_data.second.size()) return person_destroy(person);
 
-                    unsigned char packet[2] = { 0x01 };
-                    unsigned char recved_username[64] = { 0 };
-                    unsigned char recved_password[64] = { 0 };
+                    unsigned char packet[2] = { 0x01, 0x00 };
+                    std::string incoming_username = { (char*)&buf->data[2], buf->data[1] };
+                    std::string incoming_password = { (char*)&buf->data[buf->data[1] + 3], buf->data[buf->data[1] + 2] };
 
-                    memcpy(recved_username, &buf->data[2], buf->data[1]);
-                    memcpy(recved_password, &buf->data[buf->data[1] + 3], buf->data[buf->data[1] + 2]);
-
-                    if (strcmp(auth_data.first.c_str(), (char*)recved_username)) return person_destroy(person);
-                    if (strcmp(auth_data.second.c_str(), (char*)recved_password)) return person_destroy(person);
+                    if((auth_data.first != incoming_username) || (auth_data.second != incoming_password)) return person_destroy(person);
 
                     person->update_state(proxys::state_authorization_passed);
                     return person->send_data(packet, 2);
