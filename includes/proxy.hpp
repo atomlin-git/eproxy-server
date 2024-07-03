@@ -53,6 +53,7 @@ class client
             tcp_data.second = sock;
 
             client_state = proxys::state_handshake;
+            forwarder_port = 0;
 
             personal_proxy_data.first = -1;
             personal_proxy_data.second = 0;
@@ -148,17 +149,17 @@ class client
         void set_dst_port(unsigned short port) { dst_data.second = port; };
         void set_dst_addr(unsigned int addr) { dst_data.first = addr; };
 
-        void set_forwarder(int f) { forwarder = f; };
-        void update_state(proxys::states st) { client_state = st; };
+        void set_forwarder(int forwarder_ports) { forwarder_port = forwarder_ports; };
+        void update_state(proxys::states state) { client_state = state; };
 
-        unsigned short get_forwarder() { return forwarder; };
+        unsigned short get_forwarder() { return forwarder_port; };
         proxys::states get_state() { return client_state; };
 
         std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
         std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
         std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
     private:
-        unsigned short forwarder;
+        unsigned short forwarder_port;
         proxys::states client_state;
 
         std::pair <unsigned int, unsigned short> dst_data; // addr, port
@@ -186,7 +187,7 @@ class proxy
             if (listen(sock, SOMAXCONN) == -1) return;
 
             local_ipv4 = -1;
-            std::thread([this] {accepts(); }).detach();
+            std::thread([this]{accept_clients();}).detach();
         };
 
         bool set_auth_data(std::string login, std::string password)
@@ -199,21 +200,21 @@ class proxy
 
         ~proxy() { closesocket(sock); WSACleanup(); clients.clear(); };
     private:
-        void accepts()
+        void accept_clients()
         {
-            int client_addr_len = sizeof(sockaddr);
+            struct sockaddr_in client_addr = { 0 };
+            static int client_addr_len = sizeof(sockaddr);
+
             while (sock != -1)
             {
-                struct sockaddr_in client_addr = { 0 };
-
                 int clientsock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len);
-                if (clientsock < 0) continue;
+                if (clientsock < 0) return;
 
                 if (local_ipv4 <= 0)
                 {
                     struct sockaddr_in local_addr = { 0 };
-                    getsockname(clientsock, (struct sockaddr*)&local_addr, &client_addr_len);
-                    local_ipv4 = local_addr.sin_addr.S_un.S_addr;
+                    if (getsockname(clientsock, (struct sockaddr*)&local_addr, &client_addr_len) != -1)
+                        local_ipv4 = local_addr.sin_addr.S_un.S_addr;
                 }
 
                 std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
@@ -382,23 +383,23 @@ class proxy
 
                     if (!is_udp) person->update_state(proxys::state_tcp_proxyfy);
 
+                    std::thread([this, person] {personal_network(person); }).detach();
+
                     unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
                     *(unsigned int*)&packet[4] = local_ipv4;
                     *(unsigned short*)&packet[8] = htons(person->get_proxy_data().second);
-                    person->send_data(packet, 10);
-
-                    std::thread([this, person] {personal_network(person); }).detach();
-                    break;
+                    
+                    return person->send_data(packet, 10);
                 };
 
                 case proxys::state_tcp_proxyfy:
                 {
-                    person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second);
-                    break;
+                    return person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second);
                 };
 
                 default: return person_destroy(person);
-            }
+            };
+            
             return true;
         };
 
