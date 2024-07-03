@@ -8,12 +8,14 @@
 #include <string>
 #include <vector>
 
+static int sockaddr_size = 16; 
+
 namespace proxys
 {
     enum states
     {
         state_handshake = 0,
-        state_authorization_passed = 1,
+        state_connection_request = 1,
         state_authorization_rfc1929 = 2,
         state_tcp_proxyfy = 3,
     };
@@ -84,12 +86,11 @@ class client
 
             unsigned char buffer[4096] = { 0 };
             struct sockaddr_in client = { 0 };
-            int clientlength = sizeof(client);
             int length = -1;
 
             if(client_state == proxys::state_tcp_proxyfy)
                 length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
-                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &clientlength);
+                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size);            
             if (!length || length == -1) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
@@ -100,13 +101,13 @@ class client
             return buf;
         };
 
-        bool send_data(unsigned char* data, unsigned int length)
+        int send_data(unsigned char* data, unsigned int length)
         {
-            if (!data) return false;
+            if (!data || tcp_data.second == -1) return false;
             return send(tcp_data.second, (char*)data, length, 0);
         };
 
-        bool send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
+        int send_personal(unsigned char* data, unsigned int length, unsigned int address, unsigned short port)
         {
             if (!data || personal_proxy_data.first == -1) return false;
             if (client_state == proxys::state_tcp_proxyfy) return send(personal_proxy_data.first, (char*)data, length, 0);
@@ -116,7 +117,7 @@ class client
             send.sin_port = htons(port);
             send.sin_addr.S_un.S_addr = address;
 
-            return sendto(personal_proxy_data.first, (char*)data, length, 0, (sockaddr*)&send, sizeof(sockaddr_in));
+            return sendto(personal_proxy_data.first, (char*)data, length, 0, (sockaddr*)&send, sockaddr_size);
         };
 
         bool init_personal(unsigned char proto)
@@ -133,13 +134,12 @@ class client
             if (proto == 0)
             {
                 unsigned long timeout = 10000;
-                if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) == -1) return false;
-                if (connect(personal_proxy_data.first, (sockaddr*)&addr, sizeof(sockaddr)) == -1) return false;
+                if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, 4) == -1) return false;
+                if (connect(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(dst_data.second);
             } else {
-                int addr_size = sizeof(addr);
-                if (bind(personal_proxy_data.first, (sockaddr*)&addr, sizeof(addr)) == -1) return false;
-                if (getsockname(personal_proxy_data.first, (struct sockaddr*)&addr, &addr_size) == -1) return false;
+                if (bind(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
+                if (getsockname(personal_proxy_data.first, (struct sockaddr*)&addr, &sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(addr.sin_port);
             };
 
@@ -183,7 +183,7 @@ class proxy
             sockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
             sockaddr.sin_port = htons(port);
 
-            if (bind(sock, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) == -1) return;
+            if (bind(sock, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
             if (listen(sock, SOMAXCONN) == -1) return;
 
             local_ipv4 = -1;
@@ -203,17 +203,17 @@ class proxy
         void accept_clients()
         {
             struct sockaddr_in client_addr = { 0 };
-            static int client_addr_len = sizeof(sockaddr);
+            //static int client_addr_len = sizeof(sockaddr);
 
             while (sock != -1)
             {
-                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len);
+                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &sockaddr_size);
                 if (clientsock < 0) return;
 
                 if (local_ipv4 <= 0)
                 {
                     struct sockaddr_in local_addr = { 0 };
-                    if (getsockname(clientsock, (struct sockaddr*)&local_addr, &client_addr_len) != -1)
+                    if (getsockname(clientsock, (struct sockaddr*)&local_addr, &sockaddr_size) != -1)
                         local_ipv4 = local_addr.sin_addr.S_un.S_addr;
                 }
 
@@ -246,7 +246,7 @@ class proxy
             {
                 if (state == proxys::state_tcp_proxyfy)
                 {
-                    person->send_data(buf->data, buf->length);
+                    if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
                 }
 
@@ -294,7 +294,7 @@ class proxy
                                 if (auth_data.first.empty() || auth_data.second.empty())
                                 {
                                     packet[1] = 0x00;
-                                    person->update_state(proxys::state_authorization_passed);
+                                    person->update_state(proxys::state_connection_request);
                                     return person->send_data(packet, 2);
                                 }
 
@@ -329,11 +329,11 @@ class proxy
 
                     if((auth_data.first != incoming_username) || (auth_data.second != incoming_password)) return person_destroy(person);
 
-                    person->update_state(proxys::state_authorization_passed);
+                    person->update_state(proxys::state_connection_request);
                     return person->send_data(packet, 2);
                 };
 
-                case proxys::state_authorization_passed:
+                case proxys::state_connection_request:
                 {
                     if (buf->length < 10) return person_destroy(person);
 
@@ -393,13 +393,14 @@ class proxy
                 };
 
                 case proxys::state_tcp_proxyfy:
-                {
-                    return person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second);
+                {   
+                    if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
+                    break;
                 };
 
                 default: return person_destroy(person);
             };
-            
+
             return true;
         };
 
