@@ -235,8 +235,7 @@ class proxy
         bool personal_network(std::shared_ptr<client> person)
         {
             if (!person) return false;
-            unsigned char packet[10] = { 0x00, 0x00, 0x00, 0x01 };
-            unsigned char packet_buffer[65536] = { 0 };
+            unsigned char packet_buffer[65536] = { 0x00, 0x00, 0x00, 0x01 };
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
             proxys::states state = person->get_state();
@@ -260,10 +259,9 @@ class proxy
                 
                 //request server to client (udp)
 
-                *(unsigned int*)&packet[4] = buf->addr.sin_addr.S_un.S_addr;
-                *(unsigned short*)&packet[8] = buf->addr.sin_port;
+                *(unsigned int*)&packet_buffer[4] = buf->addr.sin_addr.S_un.S_addr;
+                *(unsigned short*)&packet_buffer[8] = buf->addr.sin_port;
 
-                memcpy(packet_buffer, packet, 10);
                 memcpy(&packet_buffer[10], buf->data, buf->length);
                 person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_forwarder());
             };
@@ -348,7 +346,7 @@ class proxy
                         {
                             person->set_dst_addr(*(unsigned int*)&request->data[0]);
                             break;
-                        }
+                        };
 
                         case 0x03: // domain name
                         {
@@ -366,7 +364,7 @@ class proxy
                             person->set_dst_addr((unsigned int)ipv4->sin_addr.S_un.S_addr);
                             freeaddrinfo(res);
                             break;
-                        }
+                        };
 
                         default: return person_destroy(person); // ipv6 and other unk parameters
                     };
