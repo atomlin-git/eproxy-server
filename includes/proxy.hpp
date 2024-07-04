@@ -213,14 +213,6 @@ class proxy : public utils
             return true;
         };
 
-        bool callback_disable(proxys::callbacks type)
-        {
-            if(!callback_list.size()) return false;
-            if(!callback_list[type]) return false;
-            callback_list.erase(type);
-            return true;
-        };
-
         ~proxy() { closesocket(sock); WSACleanup(); clients.clear(); };
     private:
         void accept_clients()
