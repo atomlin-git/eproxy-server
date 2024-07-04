@@ -4,14 +4,21 @@
 #include <winsock.h>
 #pragma comment (lib, "ws2_32.lib")
 
+#include <unordered_map>
 #include <thread>
 #include <string>
 #include <vector>
-
+#include <iostream>
 static int sockaddr_size = 16; 
 
 namespace proxys
 {
+    enum callbacks
+    {
+        callback_udp = 1,
+        callback_tcp = 2,
+    };
+
     enum states
     {
         state_handshake = 0,
@@ -198,6 +205,22 @@ class proxy : public utils
             return true;
         };
 
+        bool callback_enable(proxys::callbacks type, callback* ptr)
+        {
+            if(!ptr) return false;
+            if(callback_list[type]) return false; // already exists
+            callback_list[type] = ptr;
+            return true;
+        };
+
+        bool callback_disable(proxys::callbacks type)
+        {
+            if(!callback_list.size()) return false;
+            if(!callback_list[type]) return false;
+            callback_list.erase(type);
+            return true;
+        };
+
         ~proxy() { closesocket(sock); WSACleanup(); clients.clear(); };
     private:
         void accept_clients()
@@ -250,11 +273,27 @@ class proxy : public utils
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) // request from client to server (udp)
                 {
                     if (buf->length <= 10) continue;
+                    if(callback_list.size())
+                    {
+                        auto callb = callback_list[proxys::callback_udp];
+                        if(callb)
+                            if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), buf->data, buf->length))
+                                return false;
+                    };
+
                     person->set_forwarder(htons(buf->addr.sin_port));
                     person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
                     continue;
                 }
                 
+                if(callback_list.size())
+                {
+                    auto callb = callback_list[proxys::callback_udp];
+                    if(callb)
+                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_forwarder(), buf->data, buf->length))
+                            return false;
+                };
+
                 //request server to client (udp)
 
                 *(unsigned int*)&packet_buffer[4] = buf->addr.sin_addr.S_un.S_addr;
@@ -413,4 +452,5 @@ class proxy : public utils
 
         std::pair<std::string, std::string> auth_data;
         std::vector<std::shared_ptr<client>> clients;
+        std::unordered_map<proxys::callbacks, callback*> callback_list;
 };
