@@ -8,7 +8,7 @@
 #include <thread>
 #include <string>
 #include <vector>
-#include <iostream>
+
 static int sockaddr_size = 16; 
 
 namespace proxys
@@ -266,6 +266,14 @@ class proxy : public utils
             {
                 if (state == proxys::state_tcp_proxyfy)
                 {
+                    if(callback_list.size())
+                    {
+                        auto callb = callback_list[proxys::callback_tcp];
+                        if(callb)
+                            if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, buf->data, buf->length))
+                                return false;
+                    };
+
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
                 }
@@ -428,7 +436,15 @@ class proxy : public utils
                 };
 
                 case proxys::state_tcp_proxyfy:
-                {   
+                {
+                    if(callback_list.size())
+                    {
+                        auto callb = callback_list[proxys::callback_tcp];
+                        if(callb)
+                            if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, buf->data, buf->length))
+                                return false;
+                    };
+
                     if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
                     break;
                 };
