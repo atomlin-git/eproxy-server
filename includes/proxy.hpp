@@ -167,7 +167,7 @@ class client
         std::pair <sockaddr_in, int> tcp_data; // tcp socket addr, tcp socket
 };
 
-class proxy
+class proxy : public utils
 {
     public:
         proxy(unsigned short port) 
@@ -203,8 +203,6 @@ class proxy
         void accept_clients()
         {
             struct sockaddr_in client_addr = { 0 };
-            //static int client_addr_len = sizeof(sockaddr);
-
             while (sock != -1)
             {
                 int clientsock = accept(sock, (struct sockaddr*)&client_addr, &sockaddr_size);
