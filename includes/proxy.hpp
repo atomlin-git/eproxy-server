@@ -258,12 +258,12 @@ class proxy : public utils
             {
                 if (state == proxys::state_tcp_proxyfy)
                 {
-                    if(callback_list.size())
+                    if (auto callb = callback_list[proxys::callback_tcp])
                     {
-                        auto callb = callback_list[proxys::callback_tcp];
-                        if(callb)
-                            if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, buf->data, buf->length))
-                                return false;
+                        if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, buf->data, buf->length))
+                        {
+                            return false;
+                        }
                     };
 
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
@@ -273,12 +273,12 @@ class proxy : public utils
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) // request from client to server (udp)
                 {
                     if (buf->length <= 10) continue;
-                    if(callback_list.size())
+                    if (auto callb = callback_list[proxys::callback_udp])
                     {
-                        auto callb = callback_list[proxys::callback_udp];
-                        if(callb)
-                            if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), buf->data, buf->length))
-                                return false;
+                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), buf->data, buf->length))
+                        {
+                            return false;
+                        }
                     };
 
                     person->set_forwarder(htons(buf->addr.sin_port));
@@ -286,12 +286,12 @@ class proxy : public utils
                     continue;
                 }
                 
-                if(callback_list.size())
+                if(auto callb = callback_list[proxys::callback_udp])
                 {
-                    auto callb = callback_list[proxys::callback_udp];
-                    if(callb)
-                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_forwarder(), buf->data, buf->length))
-                            return false;
+                    if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_forwarder(), buf->data, buf->length))
+                    {
+                        return false;
+                    }
                 };
 
                 //request server to client (udp)
@@ -429,12 +429,12 @@ class proxy : public utils
 
                 case proxys::state_tcp_proxyfy:
                 {
-                    if(callback_list.size())
+                    if(auto callb = callback_list[proxys::callback_tcp])
                     {
-                        auto callb = callback_list[proxys::callback_tcp];
-                        if(callb)
-                            if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, buf->data, buf->length))
-                                return false;
+                        if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, buf->data, buf->length))
+                        {
+                            return false;
+                        }
                     };
 
                     if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
