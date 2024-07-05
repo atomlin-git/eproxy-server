@@ -20,6 +20,4 @@ server.callback_enable(proxys::callback_udp, &udp_callback);
 
  — crossplatform; <br>
  — bind command support; <br>
- — big refactory; <br>
  — support ipv6; <br>
- — support domain name on udp packets; <br>
