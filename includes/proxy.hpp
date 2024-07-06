@@ -62,33 +62,18 @@ class client
             if (personal_proxy_data.first != -1) closesocket(personal_proxy_data.first);
         };
 
-        /*std::shared_ptr <proxys::data> read()
-        {
-            if (tcp_data.second == -1) return 0;
-            unsigned char buffer[4096] = { 0 };
-
-            if (int length = recv(tcp_data.second, (char*)buffer, 4096, 0) > 0)
-            {
-                std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
-                buf->data = buffer;
-                buf->length = length;
-                buf->addr = { };
-                return buf;
-            }
-
-            return 0;
-        };*/
         std::shared_ptr <proxys::data> read()
         {
             if (tcp_data.second == -1) return 0;
             unsigned char buffer[4096] = { 0 };
 
             int length = recv(tcp_data.second, (char*)buffer, 4096, 0);
-            if (!length || length == -1) return 0;
+            if (length <= 0) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
             buf->data = buffer;
             buf->length = length;
+            buf->addr = {};
 
             return buf;
         };
@@ -98,27 +83,29 @@ class client
             if (personal_proxy_data.first == -1) return 0;
 
             unsigned char buffer[4096] = { 0 };
-            struct sockaddr_in client_addr = { 0 };
-            int length = 0;
+            struct sockaddr_in client = { 0 };
+            int length = -1;
 
             switch(client_state)
             {
                 case proxys::state_tcp_proxyfy:
                 {
-                    if(length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0) <= 0) return 0;
+                    length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
                     break;
                 }
+
                 case proxys::state_connection_request:
                 {
-                    if(length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client_addr, &sockaddr_size) <= 0) return 0;    
+                    length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size);    
                     break;
                 }
-            };
+            };      
+            if (length <= 0) return 0;
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
             buf->data = buffer;
             buf->length = length;
-            buf->addr = client_addr;
+            buf->addr = client;
 
             return buf;
         };
@@ -219,7 +206,11 @@ class proxy : public utils
             return true;
         };
 
-        ~proxy() { closesocket(sock); WSACleanup(); clients.clear(); };
+        ~proxy() {
+            closesocket(sock); 
+            clients.clear();
+            WSACleanup();
+        };
     private:
         void accept_clients()
         {
