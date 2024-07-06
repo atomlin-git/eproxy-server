@@ -4,7 +4,7 @@
 
 ```cpp
 // announce callback:
-callback udp_callback;
+callback<bool> udp_callback;
 
 // install detour function:
 udp_callback.install([](std::string source_ip, std::string dest_ip, unsigned short source_port, unsigned short dest_port, unsigned char* data, unsigned int length) -> bool {
