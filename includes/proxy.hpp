@@ -51,20 +51,33 @@ class client
 {
     public:
         client(sockaddr_in addr, int sock) {
-            tcp_data.first = addr;
-            tcp_data.second = sock;
+            tcp_data = { addr, sock };
+            personal_proxy_data = { -1, 0 };
 
+            udp_forwarder_port = 0;
             client_state = proxys::state_handshake;
-            forwarder_port = 0;
-
-            personal_proxy_data.first = -1;
-            personal_proxy_data.second = 0;
         };
         ~client() {
             if (tcp_data.second != -1) closesocket(tcp_data.second);
             if (personal_proxy_data.first != -1) closesocket(personal_proxy_data.first);
         };
 
+        /*std::shared_ptr <proxys::data> read()
+        {
+            if (tcp_data.second == -1) return 0;
+            unsigned char buffer[4096] = { 0 };
+
+            if (int length = recv(tcp_data.second, (char*)buffer, 4096, 0) > 0)
+            {
+                std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
+                buf->data = buffer;
+                buf->length = length;
+                buf->addr = { };
+                return buf;
+            }
+
+            return 0;
+        };*/
         std::shared_ptr <proxys::data> read()
         {
             if (tcp_data.second == -1) return 0;
@@ -85,18 +98,27 @@ class client
             if (personal_proxy_data.first == -1) return 0;
 
             unsigned char buffer[4096] = { 0 };
-            struct sockaddr_in client = { 0 };
-            int length = -1;
+            struct sockaddr_in client_addr = { 0 };
+            int length = 0;
 
-            if(client_state == proxys::state_tcp_proxyfy)
-                length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
-                else length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size);            
-            if (!length || length == -1) return 0;
+            switch(client_state)
+            {
+                case proxys::state_tcp_proxyfy:
+                {
+                    if(length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0) <= 0) return 0;
+                    break;
+                }
+                case proxys::state_connection_request:
+                {
+                    if(length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client_addr, &sockaddr_size) <= 0) return 0;    
+                    break;
+                }
+            };
 
             std::shared_ptr <proxys::data> buf = std::make_shared<proxys::data>();
             buf->data = buffer;
             buf->length = length;
-            buf->addr = client;
+            buf->addr = client_addr;
 
             return buf;
         };
@@ -149,17 +171,17 @@ class client
         void set_dst_port(unsigned short port) { dst_data.second = port; };
         void set_dst_addr(unsigned int addr) { dst_data.first = addr; };
 
-        void set_forwarder(int forwarder_ports) { forwarder_port = forwarder_ports; };
+        void set_udp_forwarder(int udp_forwarder_port_) { udp_forwarder_port = udp_forwarder_port_; };
         void update_state(proxys::states state) { client_state = state; };
 
-        unsigned short get_forwarder() { return forwarder_port; };
+        unsigned short get_udp_forwarder() { return udp_forwarder_port; };
         proxys::states get_state() { return client_state; };
 
         std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
         std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
         std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
     private:
-        unsigned short forwarder_port;
+        unsigned short udp_forwarder_port;
         proxys::states client_state;
 
         std::pair <unsigned int, unsigned short> dst_data; // addr, port
@@ -193,8 +215,7 @@ class proxy : public utils
         bool set_auth_data(std::string login, std::string password)
         {
             if(login.empty() || password.empty()) return false;
-            auth_data.first = login;
-            auth_data.second = password;
+            auth_data = { login, password };
             return true;
         };
 
@@ -250,7 +271,7 @@ class proxy : public utils
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) // request from client to server (udp)
                 {
                     if (buf->length <= 10) continue;
-                    person->set_forwarder(htons(buf->addr.sin_port));
+                    person->set_udp_forwarder(htons(buf->addr.sin_port));
                     person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
                     continue;
                 }
@@ -261,7 +282,7 @@ class proxy : public utils
                 *(unsigned short*)&packet_buffer[8] = buf->addr.sin_port;
 
                 memcpy(&packet_buffer[10], buf->data, buf->length);
-                person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_forwarder());
+                person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_udp_forwarder());
             };
 
             return person_destroy(person);
