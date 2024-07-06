@@ -2,27 +2,27 @@
 
 #include <string>
 #include <format>
+#include <functional>
+#include <iostream>
+#include <typeinfo>
 
+template<typename return_type>
 class callback
 {
-    public:
-        callback() { };
-        ~callback() { };
+    void* dest;
 
+    public:
         template <class T>
-        bool install(T idest) {
-            dest = idest;
-            return true;
-        };
+            bool install(T idest) {
+                dest = idest;
+                return true;
+            }; 
 
         template<typename... arguments>
-        bool call(arguments... args) {
-            using type = bool(*)(arguments...);
-            return reinterpret_cast<type>(dest)(args...); 
-        };
-
-    private:
-        void* dest;
+            auto call(arguments&&... args) {
+                using type = return_type(*)(arguments...);
+                return reinterpret_cast<type>(dest)(args...); 
+            };
 };
 
 class utils

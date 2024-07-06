@@ -205,7 +205,7 @@ class proxy : public utils
             return true;
         };
 
-        bool callback_enable(proxys::callbacks type, callback* ptr)
+        bool callback_enable(proxys::callbacks type, callback<bool>* ptr)
         {
             if(!ptr) return false;
             if(callback_list[type]) return false; // already exists
@@ -460,5 +460,5 @@ class proxy : public utils
 
         std::pair<std::string, std::string> auth_data;
         std::vector<std::shared_ptr<client>> clients;
-        std::unordered_map<proxys::callbacks, callback*> callback_list;
+        std::unordered_map<proxys::callbacks, callback<bool>*> callback_list;
 };
