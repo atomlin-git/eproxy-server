@@ -1,4 +1,4 @@
-###### Simple and easy oneheader socks5 proxy server, which supports TCP and UDP commands; <br>
+###### Simple and easy socks5 proxy server, which supports TCP and UDP commands; <br>
 
 ###### Callbacks use example:
 
