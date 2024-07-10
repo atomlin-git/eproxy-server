@@ -177,8 +177,7 @@ class client
 class proxy : public utils
 {
     public:
-        proxy(unsigned short port) 
-        {
+        proxy(unsigned short port)  {
             WSADATA wsaData = { 0 };
             WSAStartup(MAKEWORD(2, 2), &wsaData);
 
@@ -197,17 +196,16 @@ class proxy : public utils
             std::thread([this]{accept_clients();}).detach();
         };
 
+        ~proxy() {
+            closesocket(sock);
+            WSACleanup();
+        };
+
         bool set_auth_data(std::string login, std::string password)
         {
             if(login.empty() || password.empty()) return false;
             auth_data = { login, password };
             return true;
-        };
-
-        ~proxy() {
-            closesocket(sock); 
-            clients.clear();
-            WSACleanup();
         };
     private:
         void accept_clients()
@@ -226,44 +224,43 @@ class proxy : public utils
                 }
 
                 std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
-                clients.emplace_back(person);
-                std::thread([this, person] {network_tcp(person); }).detach();
+                std::thread([this, person] {network_tcp(person);}).detach();
             };
         };
 
-        bool network_tcp(std::shared_ptr<client> person)
+        bool network_tcp(const std::shared_ptr<client>& person)
         {
             if(!person) return false;
             std::shared_ptr<proxys::data> buf = 0;
-            while (buf = person->read()) this->proxyfy(person, buf);
+            while (buf = person->read()) { 
+                if(!this->proxyfy(person, buf)) break;
+            }
 
             return person_destroy(person);
         };
 
-        bool personal_network(std::shared_ptr<client> person)
+        bool personal_network(const std::shared_ptr<client>& person)
         {
             if (!person) return false;
+
             unsigned char packet_buffer[65536] = { 0x00, 0x00, 0x00, 0x01 };
             unsigned int person_binary_address = person->get_tcp_data().first.sin_addr.S_un.S_addr;
 
             proxys::states state = person->get_state();
             std::shared_ptr<proxys::data> buf = 0;
 
-            while (buf = person->read_personal())
-            {
-                if (state == proxys::state_tcp_proxyfy)
-                {
+            while (buf = person->read_personal()) {
+                if (state == proxys::state_tcp_proxyfy) {
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
-                }
+                };
 
-                if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) // request from client to server (udp)
-                {
+                if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) { // request from client to server (udp)
                     if (buf->length <= 10) continue;
                     person->set_udp_forwarder(htons(buf->addr.sin_port));
                     person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
                     continue;
-                }
+                };
                 
                 //request server to client (udp)
 
@@ -277,7 +274,7 @@ class proxy : public utils
             return person_destroy(person);
         };
 
-        bool proxyfy(std::shared_ptr<client> person, std::shared_ptr<proxys::data> buf)
+        bool proxyfy(const std::shared_ptr<client>& person, std::shared_ptr<proxys::data> buf)
         {
             if (!person || !buf) return false;
             proxys::states state = person->get_state();
@@ -286,34 +283,32 @@ class proxy : public utils
             {
                 case proxys::state_handshake:
                 {
-                    if (buf->length < 3) return person_destroy(person);
+                    if (buf->length < 3) return false;
                     proxys::handshake* handshake = (proxys::handshake*)(buf->data);
-                    if(handshake->protocol_version != 0x05) return person_destroy(person);
+                    if(handshake->protocol_version != 0x05) return false;
 
                     unsigned char packet[2] = { 0x05, 0xFF };
                     for (unsigned char i = 0; i < handshake->method_count; i++)
                     {
                         switch(handshake->auth_methods[i])
                         {
-                            case 0x00:
-                            {
-                                if (auth_data.first.empty() || auth_data.second.empty())
+                            case 0x00: {
+                                if (auth_data.first.empty() || auth_data.second.empty()) 
                                 {
                                     packet[1] = 0x00;
                                     person->update_state(proxys::state_connection_request);
                                     return person->send_data(packet, 2);
-                                }
+                                };
 
                                 break;
                             };
-                            case 0x02:
-                            {
-                                if (!auth_data.first.empty() && !auth_data.second.empty())
+                            case 0x02: {
+                                if (!auth_data.first.empty() && !auth_data.second.empty()) 
                                 {
                                     packet[1] = 0x02;
                                     person->update_state(proxys::state_authorization_rfc1929);
                                     return person->send_data(packet, 2);
-                                }
+                                };
 
                                 break;
                             };
@@ -325,15 +320,15 @@ class proxy : public utils
 
                 case proxys::state_authorization_rfc1929:
                 {
-                    if (buf->data[0] != 0x01) return person_destroy(person);
-                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return person_destroy(person);
-                    if (buf->data[1] != auth_data.first.size() || buf->data[buf->data[1] + 2] != auth_data.second.size()) return person_destroy(person);
+                    if (buf->data[0] != 0x01) return false;
+                    if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return false;
+                    if (buf->data[1] != auth_data.first.size() || buf->data[buf->data[1] + 2] != auth_data.second.size()) return false;
 
                     unsigned char packet[2] = { 0x01, 0x00 };
                     std::string incoming_username = { (char*)&buf->data[2], buf->data[1] };
                     std::string incoming_password = { (char*)&buf->data[buf->data[1] + 3], buf->data[buf->data[1] + 2] };
 
-                    if((auth_data.first != incoming_username) || (auth_data.second != incoming_password)) return person_destroy(person);
+                    if((auth_data.first != incoming_username) || (auth_data.second != incoming_password)) return false;
 
                     person->update_state(proxys::state_connection_request);
                     return person->send_data(packet, 2);
@@ -341,23 +336,21 @@ class proxy : public utils
 
                 case proxys::state_connection_request:
                 {
-                    if (buf->length < 10) return person_destroy(person);
+                    if (buf->length < 10) return false;
 
                     proxys::request* request = (proxys::request*)(buf->data);
-                    if(request->protocol_version != 0x05) return person_destroy(person);
-                    if(request->command != 0x03 && request->command != 0x01) return person_destroy(person);
-                    if(request->rsv != 0x00) return person_destroy(person);
+                    if(request->protocol_version != 0x05) return false;
+                    if(request->command != 0x03 && request->command != 0x01) return false;
+                    if(request->rsv != 0x00) return false;
 
                     switch(request->address_type)
                     {
-                        case 0x01: // ipv4
-                        {
+                        case 0x01: { // ipv4
                             person->set_dst_addr(*(unsigned int*)&request->data[0]);
                             break;
                         };
 
-                        case 0x03: // domain name
-                        {
+                        case 0x03: { // domain name
                             char hostname[256] = { 0 };
                             memcpy(hostname, &request->data[1], request->data[0]);
 
@@ -366,25 +359,25 @@ class proxy : public utils
                             hints.ai_family = AF_INET;
                             hints.ai_socktype = SOCK_STREAM;
 
-                            if (getaddrinfo(hostname, NULL, &hints, &res) != 0) return person_destroy(person);
-
+                            if (getaddrinfo(hostname, NULL, &hints, &res) != 0) return false;
+                            
                             struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
                             person->set_dst_addr((unsigned int)ipv4->sin_addr.S_un.S_addr);
                             freeaddrinfo(res);
                             break;
                         };
 
-                        default: return person_destroy(person); // ipv6 and other unk parameters
+                        default: return false; // ipv6 and other unk parameters
                     };
 
                     person->set_dst_port(*(unsigned short*)&buf->data[buf->length - 2]);
 
                     bool is_udp = request->command == 0x03;
-                    if (!person->init_personal(is_udp ? IPPROTO_UDP : 0))
+                    if (!person->init_personal(is_udp ? IPPROTO_UDP : 0)) 
                     {
                         unsigned char error[10] = { 0x05, 0x01 };
                         person->send_data(error, 10);
-                        return person_destroy(person);
+                        return false;
                     };
 
                     if (!is_udp) person->update_state(proxys::state_tcp_proxyfy);
@@ -404,17 +397,16 @@ class proxy : public utils
                     break;
                 };
 
-                default: return person_destroy(person);
+                default: return false;
             };
 
             return true;
         };
 
-        bool person_destroy(std::shared_ptr<client> person) {
+        bool person_destroy(const std::shared_ptr<client>& person) 
+        {
             if(!person) return false; 
-            if(!clients.size()) return false;
-            std::erase_if(clients, [](const std::shared_ptr<client>& ptr) { return ptr; });
-            person.reset();
+            person->~client();
             return true;
         };
 
@@ -422,5 +414,4 @@ class proxy : public utils
         int local_ipv4;
 
         std::pair<std::string, std::string> auth_data;
-        std::vector<std::shared_ptr<client>> clients;
 };
