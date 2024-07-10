@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <thread>
 #include <string>
-#include <vector>
 
 static int sockaddr_size = 16; 
 
