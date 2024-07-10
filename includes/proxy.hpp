@@ -4,14 +4,20 @@
 #include <winsock.h>
 #pragma comment (lib, "ws2_32.lib")
 
+#include <unordered_map>
 #include <thread>
 #include <string>
-#include <vector>
 
 static int sockaddr_size = 16; 
 
 namespace proxys
 {
+    enum callbacks
+    {
+        callback_udp = 1,
+        callback_tcp = 2,
+    };
+
     enum states
     {
         state_handshake = 0,
@@ -197,7 +203,7 @@ class proxy : public utils
         };
 
         ~proxy() {
-            closesocket(sock);
+            closesocket(sock); 
             WSACleanup();
         };
 
@@ -205,6 +211,14 @@ class proxy : public utils
         {
             if(login.empty() || password.empty()) return false;
             auth_data = { login, password };
+            return true;
+        };
+
+        bool callback_enable(proxys::callbacks type, callback<bool>* ptr)
+        {
+            if(!ptr) return false;
+            if(callback_list[type]) return false; // already exists
+            callback_list[type] = ptr;
             return true;
         };
     private:
@@ -249,19 +263,45 @@ class proxy : public utils
             proxys::states state = person->get_state();
             std::shared_ptr<proxys::data> buf = 0;
 
-            while (buf = person->read_personal()) {
-                if (state == proxys::state_tcp_proxyfy) {
+            while (buf = person->read_personal())
+            {
+                if (state == proxys::state_tcp_proxyfy)
+                {
+                    if (auto callb = callback_list[proxys::callback_tcp])
+                    {
+                        if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, buf->data, buf->length))
+                        {
+                            return true;
+                        }
+                    };
+                    
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
                 };
 
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) { // request from client to server (udp)
                     if (buf->length <= 10) continue;
+                    if (auto callb = callback_list[proxys::callback_udp])
+                    {
+                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), buf->data, buf->length))
+                        {
+                            return true;
+                        }
+                    };
+
                     person->set_udp_forwarder(htons(buf->addr.sin_port));
                     person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
                     continue;
                 };
                 
+                if(auto callb = callback_list[proxys::callback_udp])
+                {
+                    if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_udp_forwarder(), buf->data, buf->length))
+                    {
+                        return true;
+                    }
+                };
+
                 //request server to client (udp)
 
                 *(unsigned int*)&packet_buffer[4] = buf->addr.sin_addr.S_un.S_addr;
@@ -392,7 +432,15 @@ class proxy : public utils
                 };
 
                 case proxys::state_tcp_proxyfy:
-                {   
+                {
+                    if(auto callb = callback_list[proxys::callback_tcp])
+                    {
+                        if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, buf->data, buf->length))
+                        {
+                            return true;
+                        }
+                    };
+
                     if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
                     break;
                 };
@@ -414,4 +462,5 @@ class proxy : public utils
         int local_ipv4;
 
         std::pair<std::string, std::string> auth_data;
+        std::unordered_map<proxys::callbacks, callback<bool>*> callback_list;
 };
