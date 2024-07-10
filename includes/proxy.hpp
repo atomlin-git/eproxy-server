@@ -142,8 +142,6 @@ class client
             
             if (proto == 0)
             {
-                unsigned long timeout = 10000;
-                if (setsockopt(personal_proxy_data.first, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, 4) == -1) return false;
                 if (connect(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(dst_data.second);
             } else {
