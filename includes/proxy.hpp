@@ -269,7 +269,7 @@ class proxy : public utils
                 {
                     if (auto callb = callback_list[proxys::callback_tcp])
                     {
-                        if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, buf->data, buf->length))
+                        if(!callb->call(dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, &*buf))
                         {
                             return true;
                         }
@@ -283,7 +283,7 @@ class proxy : public utils
                     if (buf->length <= 10) continue;
                     if (auto callb = callback_list[proxys::callback_udp])
                     {
-                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), buf->data, buf->length))
+                        if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), &*buf))
                         {
                             return true;
                         }
@@ -296,7 +296,7 @@ class proxy : public utils
                 
                 if(auto callb = callback_list[proxys::callback_udp])
                 {
-                    if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_udp_forwarder(), buf->data, buf->length))
+                    if(!callb->call(dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_udp_forwarder(), &*buf))
                     {
                         return true;
                     }
@@ -435,7 +435,7 @@ class proxy : public utils
                 {
                     if(auto callb = callback_list[proxys::callback_tcp])
                     {
-                        if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, buf->data, buf->length))
+                        if(!callb->call(dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, &*buf))
                         {
                             return true;
                         }
