@@ -8,8 +8,6 @@
 #include <thread>
 #include <string>
 
-static int sockaddr_size = 16; 
-
 namespace proxys
 {
     enum callbacks
