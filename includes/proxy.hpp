@@ -271,7 +271,7 @@ class proxy : public utils
                     {
                         if(!callb->call(&*person, dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, &*buf))
                         {
-                            return true;
+                            continue;
                         }
                     };
                     
@@ -285,7 +285,7 @@ class proxy : public utils
                     {
                         if(!callb->call(&*person, dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), &*buf))
                         {
-                            return true;
+                            continue;
                         }
                     };
 
@@ -298,7 +298,7 @@ class proxy : public utils
                 {
                     if(!callb->call(&*person, dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_udp_forwarder(), &*buf))
                     {
-                        return true;
+                        continue;
                     }
                 };
 
