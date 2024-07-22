@@ -8,7 +8,7 @@ callback<bool> udp_callback;
 
 // install detour function:
 udp_callback.install([](client* person, unsigned short& source_ip, unsigned short& dest_ip, unsigned short& source_port, unsigned short& dest_port, proxys::data* buf) -> bool {
-    printf("[%s -> %s | %d -> %d] length: %d\n\n", source_ip.c_str(), dest_ip.c_str(), source_port, dest_port, buf->length);
+    printf("[%s -> %s | %d -> %d] length: %d\n\n", utils::dip_to_strip(source_ip).c_str(), utils::dip_to_strip(dest_ip).c_str(), source_port, dest_port, buf->length);
     return false;
 });
 
