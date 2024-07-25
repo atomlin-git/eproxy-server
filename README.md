@@ -18,6 +18,5 @@ server.callback_enable(proxys::callback_udp, &udp_callback);
 
 ###### To-Do List:
 
- — crossplatform; <br>
  — bind command support; <br>
  — support ipv6; <br>
