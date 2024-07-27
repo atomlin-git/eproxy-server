@@ -13,7 +13,7 @@ udp_callback.install([](client* person, unsigned short& source_ip, unsigned shor
     return true;
 });
 
-udp_callback.install([](client* person, std::string source_ip, std::string dest_ip, proxys::data* buf) -> bool {
+tcp_callback.install([](client* person, std::string source_ip, std::string dest_ip, proxys::data* buf) -> bool {
     printf("[%s -> %s] length: %d\n\n", source_ip.c_str(), dest_ip.c_str(), buf->length);
     return true;
 });
