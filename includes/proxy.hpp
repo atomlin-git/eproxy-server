@@ -4,28 +4,25 @@
 #include <winsock.h>
 #pragma comment (lib, "ws2_32.lib")
 
-#include <unordered_map>
 #include <thread>
 #include <string>
+#include <unordered_map>
 
-namespace proxys
-{
-    enum callbacks
-    {
+namespace proxys {
+    enum callbacks {
         callback_udp = 1,
         callback_tcp = 2,
     };
 
-    enum states
-    {
+    enum states {
         state_handshake = 0,
         state_connection_request = 1,
         state_authorization_rfc1929 = 2,
-        state_tcp_proxyfy = 3,
+        state_tcp_proxyfy = 10,
+        state_udp_proxyfy = 11,
     };
 
-    struct data
-    {
+    struct data {
         unsigned int length;
         unsigned char* data;
         struct sockaddr_in addr;
@@ -33,15 +30,13 @@ namespace proxys
 
     // proxy structures
     #pragma pack(push, 1)
-        struct handshake
-        {
+        struct handshake {
             unsigned char protocol_version;
             unsigned char method_count;
             unsigned char auth_methods[];
         };
 
-        struct request
-        {
+        struct request {
             unsigned char protocol_version;
             unsigned char command;
             unsigned char rsv;
@@ -51,23 +46,18 @@ namespace proxys
     #pragma pack(pop)
 };
 
-class client
-{
+class client {
     public:
-        client(sockaddr_in addr, int sock) {
-            tcp_data = { addr, sock };
+        client(sockaddr_in addr, int socket_) {
+            tcp_data = { addr, socket_ };
             personal_proxy_data = { -1, 0 };
-
-            udp_forwarder_port = 0;
-            client_state = proxys::state_handshake;
         };
         ~client() {
             if (tcp_data.second != -1) closesocket(tcp_data.second);
             if (personal_proxy_data.first != -1) closesocket(personal_proxy_data.first);
         };
 
-        std::shared_ptr <proxys::data> read()
-        {
+        std::shared_ptr <proxys::data> read() {
             if (tcp_data.second == -1) return 0;
             unsigned char buffer[4096] = { 0 };
 
@@ -87,22 +77,12 @@ class client
             if (personal_proxy_data.first == -1) return 0;
 
             unsigned char buffer[4096] = { 0 };
-            struct sockaddr_in client = { 0 };
+            struct sockaddr_in client  = { 0 };
             int length = -1;
 
-            switch(client_state)
-            {
-                case proxys::state_tcp_proxyfy:
-                {
-                    length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0);
-                    break;
-                }
-
-                case proxys::state_connection_request:
-                {
-                    length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size);    
-                    break;
-                }
+            switch(client_state) {
+                case proxys::state_tcp_proxyfy: length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0); break;
+                case proxys::state_udp_proxyfy: length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size); break;
             };      
             if (length <= 0) return 0;
 
@@ -135,17 +115,14 @@ class client
 
         bool init_personal(unsigned char proto)
         {
-            if (personal_proxy_data.first != -1) return false;
-            personal_proxy_data.first = socket(AF_INET, (proto == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM, proto);
-            if (personal_proxy_data.first == -1) return false;
+            if((personal_proxy_data.first = socket(AF_INET, (proto == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM, proto)) == -1);
 
             struct sockaddr_in addr = { 0 };
             addr.sin_family = AF_INET;
             addr.sin_addr.S_un.S_addr = (proto == IPPROTO_UDP) ? INADDR_ANY : dst_data.first;
             addr.sin_port = htons((proto == IPPROTO_UDP) ? 0 : htons(dst_data.second));
             
-            if (proto == 0)
-            {
+            if (proto == 0) {
                 if (connect(personal_proxy_data.first, (sockaddr*)&addr, sockaddr_size) == -1) return false;
                 personal_proxy_data.second = htons(dst_data.second);
             } else {
@@ -166,12 +143,12 @@ class client
         unsigned short get_udp_forwarder() { return udp_forwarder_port; };
         proxys::states get_state() { return client_state; };
 
-        std::pair <unsigned int, unsigned short> get_dst_data() { return dst_data; };
-        std::pair <int, unsigned short> get_proxy_data() { return personal_proxy_data; };
-        std::pair <sockaddr_in, int> get_tcp_data() { return tcp_data; };
+        auto get_proxy_data() { return personal_proxy_data; };
+        auto get_dst_data() { return dst_data; };
+        auto get_tcp_data() { return tcp_data; };
     private:
-        unsigned short udp_forwarder_port;
-        proxys::states client_state;
+        unsigned short udp_forwarder_port = 0;
+        proxys::states client_state = proxys::state_handshake;
 
         std::pair <unsigned int, unsigned short> dst_data; // addr, port
         std::pair <int, unsigned short> personal_proxy_data; // socket, socket port
@@ -185,74 +162,64 @@ class proxy : public utils
             WSADATA wsaData = { 0 };
             WSAStartup(MAKEWORD(2, 2), &wsaData);
 
-            sock = socket(AF_INET, SOCK_STREAM, 0);
-            if (sock == -1) return;
+            if ((socket_ = socket(AF_INET, SOCK_STREAM, 0)) == -1) return;
 
             struct sockaddr_in sockaddr = { 0 };
             sockaddr.sin_family = AF_INET;
             sockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
             sockaddr.sin_port = htons(port);
 
-            if (bind(sock, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
-            if (listen(sock, SOMAXCONN) == -1) return;
+            if (bind(socket_, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
+            if (listen(socket_, SOMAXCONN) == -1) return;
 
-            local_ipv4 = -1;
-            std::thread([this]{accept_clients();}).detach();
+            std::thread([&]{accept_clients();}).detach();
         };
 
         ~proxy() {
-            closesocket(sock); 
+            closesocket(socket_); 
             WSACleanup();
         };
 
-        bool set_auth_data(std::string login, std::string password)
-        {
+        bool set_auth_data(std::string login, std::string password) {
             if(login.empty() || password.empty()) return false;
             auth_data = { login, password };
             return true;
         };
 
-        bool callback_enable(proxys::callbacks type, callback<bool>* ptr)
-        {
-            if(!ptr) return false;
-            if(callback_list[type]) return false; // already exists
+        bool callback_enable(proxys::callbacks type, callback<bool>* ptr) {
+            if(!ptr || callback_list[type]) return false;
             callback_list[type] = ptr;
             return true;
         };
     private:
-        void accept_clients()
-        {
+        void accept_clients() {
             struct sockaddr_in client_addr = { 0 };
-            while (sock != -1)
-            {
-                int clientsock = accept(sock, (struct sockaddr*)&client_addr, &sockaddr_size);
-                if (clientsock < 0) return;
+            while (socket_ != -1) {
+                int clientsocket = accept(socket_, (struct sockaddr*)&client_addr, &sockaddr_size);
+                if (clientsocket < 0) return;
 
-                if (local_ipv4 <= 0)
-                {
+                if (!local_ipv4) {
                     struct sockaddr_in local_addr = { 0 };
-                    if (getsockname(clientsock, (struct sockaddr*)&local_addr, &sockaddr_size) != -1)
+                    if (getsockname(clientsocket, (struct sockaddr*)&local_addr, &sockaddr_size) != -1)
                         local_ipv4 = local_addr.sin_addr.S_un.S_addr;
-                }
+                };
 
-                std::shared_ptr<client> person = std::make_shared<client>( client_addr, clientsock );
+                std::shared_ptr<client> person = std::make_shared<client>(client_addr, clientsocket);
                 std::thread([this, person] {network_tcp(person);}).detach();
             };
         };
 
-        bool network_tcp(const std::shared_ptr<client>& person)
-        {
+        bool network_tcp(const std::shared_ptr<client>& person) { // the main TCP stream in which we accept packets for connection
             if(!person) return false;
             std::shared_ptr<proxys::data> buf = 0;
             while (buf = person->read()) { 
                 if(!this->proxyfy(person, buf)) break;
-            }
+            };
 
             return person_destroy(person);
         };
 
-        bool personal_network(const std::shared_ptr<client>& person)
-        {
+        bool personal_network(const std::shared_ptr<client>& person) { // The TCP or UDP stream in which we receive packets for forwarding
             if (!person) return false;
 
             unsigned char packet_buffer[65536] = { 0x00, 0x00, 0x00, 0x01 };
@@ -261,59 +228,51 @@ class proxy : public utils
             proxys::states state = person->get_state();
             std::shared_ptr<proxys::data> buf = 0;
 
-            while (buf = person->read_personal())
-            {
-                if (state == proxys::state_tcp_proxyfy)
-                {
-                    if (auto callb = callback_list[proxys::callback_tcp])
-                    {
-                        if(!callb->call(&*person, dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), 0, person->get_dst_data().second, &*buf))
-                        {
-                            continue;
-                        }
+            while (buf = person->read_personal()) {
+                if (state == proxys::state_tcp_proxyfy) { // request from server to client
+                    if (const auto& callback = callback_list[proxys::callback_tcp]) {
+                        if(!callback->call(&*person, dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), &*buf)) continue;
                     };
                     
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
                     continue;
                 };
 
+                unsigned int src_addr = buf->addr.sin_addr.S_un.S_addr;
+                unsigned short src_port = htons(buf->addr.sin_port);
+
+                unsigned int dst_addr = *(unsigned int*)&buf->data[4];
+                unsigned short dst_port = htons(*(unsigned short*)&buf->data[8]);
+
                 if (buf->addr.sin_addr.S_un.S_addr == person_binary_address) { // request from client to server (udp)
                     if (buf->length <= 10) continue;
-                    if (auto callb = callback_list[proxys::callback_udp])
-                    {
-                        if(!callb->call(&*person, dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(*(unsigned int*)&buf->data[4]), htons(buf->addr.sin_port), htons(*(unsigned short*)&buf->data[8]), &*buf))
-                        {
-                            continue;
-                        }
+                    if (const auto& callback = callback_list[proxys::callback_udp]) {
+                        if(!callback->call(&*person, src_addr, dst_addr, src_port, dst_port, &*buf)) continue;
                     };
 
                     person->set_udp_forwarder(htons(buf->addr.sin_port));
-                    person->send_personal(buf->data + 10, buf->length - 10, *(unsigned int*)&buf->data[4], htons(*(unsigned short*)&buf->data[8]));
+                    person->send_personal(buf->data + 10, buf->length - 10, dst_addr, dst_port);
                     continue;
                 };
                 
-                if(auto callb = callback_list[proxys::callback_udp])
-                {
-                    if(!callb->call(&*person, dip_to_strip(buf->addr.sin_addr.S_un.S_addr), dip_to_strip(person_binary_address), htons(buf->addr.sin_port), person->get_udp_forwarder(), &*buf))
-                    {
-                        continue;
-                    }
-                };
-
                 //request server to client (udp)
 
-                *(unsigned int*)&packet_buffer[4] = buf->addr.sin_addr.S_un.S_addr;
-                *(unsigned short*)&packet_buffer[8] = buf->addr.sin_port;
+                unsigned short forwarder = person->get_udp_forwarder();
+                if(const auto& callback = callback_list[proxys::callback_udp]) {
+                    if(!callback->call(&*person, src_addr, person_binary_address, src_port, forwarder, &*buf)) continue;
+                };
+
+                *(unsigned int*)&packet_buffer[4] = src_addr;
+                *(unsigned short*)&packet_buffer[8] = htons(src_port);
 
                 memcpy(&packet_buffer[10], buf->data, buf->length);
-                person->send_personal(packet_buffer, buf->length + 10, person_binary_address, person->get_udp_forwarder());
+                person->send_personal(packet_buffer, buf->length + 10, person_binary_address, forwarder);
             };
 
             return person_destroy(person);
         };
 
-        bool proxyfy(const std::shared_ptr<client>& person, std::shared_ptr<proxys::data> buf)
-        {
+        bool proxyfy(const std::shared_ptr<client>& person, std::shared_ptr<proxys::data> buf) {
             if (!person || !buf) return false;
             proxys::states state = person->get_state();
 
@@ -331,8 +290,7 @@ class proxy : public utils
                         switch(handshake->auth_methods[i])
                         {
                             case 0x00: {
-                                if (auth_data.first.empty() || auth_data.second.empty()) 
-                                {
+                                if (auth_data.first.empty() || auth_data.second.empty()) {
                                     packet[1] = 0x00;
                                     person->update_state(proxys::state_connection_request);
                                     return person->send_data(packet, 2);
@@ -341,8 +299,7 @@ class proxy : public utils
                                 break;
                             };
                             case 0x02: {
-                                if (!auth_data.first.empty() && !auth_data.second.empty()) 
-                                {
+                                if (!auth_data.first.empty() && !auth_data.second.empty()) {
                                     packet[1] = 0x02;
                                     person->update_state(proxys::state_authorization_rfc1929);
                                     return person->send_data(packet, 2);
@@ -350,7 +307,7 @@ class proxy : public utils
 
                                 break;
                             };
-                        }
+                        };
                     };
 
                     return person->send_data(packet, 2);
@@ -411,15 +368,13 @@ class proxy : public utils
                     person->set_dst_port(*(unsigned short*)&buf->data[buf->length - 2]);
 
                     bool is_udp = request->command == 0x03;
-                    if (!person->init_personal(is_udp ? IPPROTO_UDP : 0)) 
-                    {
+                    if (!person->init_personal(is_udp ? IPPROTO_UDP : 0)) {
                         unsigned char error[10] = { 0x05, 0x01 };
                         person->send_data(error, 10);
                         return false;
                     };
 
-                    if (!is_udp) person->update_state(proxys::state_tcp_proxyfy);
-
+                    person->update_state((proxys::states)(is_udp + 10));
                     std::thread([this, person] {personal_network(person); }).detach();
 
                     unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
@@ -429,14 +384,10 @@ class proxy : public utils
                     return person->send_data(packet, 10);
                 };
 
-                case proxys::state_tcp_proxyfy:
+                case proxys::state_tcp_proxyfy: // from client to server
                 {
-                    if(auto callb = callback_list[proxys::callback_tcp])
-                    {
-                        if(!callb->call(&*person, dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), person->get_dst_data().second, 0, &*buf))
-                        {
-                            return true;
-                        }
+                    if(const auto& callback = callback_list[proxys::callback_tcp]) {
+                        if(!callback->call(&*person, dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), &*buf)) return true;
                     };
 
                     if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
@@ -449,15 +400,14 @@ class proxy : public utils
             return true;
         };
 
-        bool person_destroy(const std::shared_ptr<client>& person) 
-        {
+        bool person_destroy(const std::shared_ptr<client>& person) {
             if(!person) return false; 
             person->~client();
             return true;
         };
 
-        int sock;
-        int local_ipv4;
+        int socket_ = -1;
+        unsigned int local_ipv4 = 0;
 
         std::pair<std::string, std::string> auth_data;
         std::unordered_map<proxys::callbacks, callback<bool>*> callback_list;
