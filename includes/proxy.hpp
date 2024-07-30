@@ -115,7 +115,7 @@ class client {
 
         bool init_personal(unsigned char proto)
         {
-            if((personal_proxy_data.first = socket(AF_INET, (proto == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM, proto)) == -1);
+            if((personal_proxy_data.first = socket(AF_INET, (proto == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM, proto)) == -1) return false;
 
             struct sockaddr_in addr = { 0 };
             addr.sin_family = AF_INET;
