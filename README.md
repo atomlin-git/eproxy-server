@@ -5,7 +5,6 @@
 ```cpp
 // announce callbacks:
 callback<bool> udp_callback;
-callback<bool> tcp_callback;
 
 // install detour functions:
 udp_callback.install([](client* person, unsigned int& source_ip, unsigned int& dest_ip, unsigned short& source_port, unsigned short& dest_port, proxys::data* buf) -> bool {
@@ -13,15 +12,10 @@ udp_callback.install([](client* person, unsigned int& source_ip, unsigned int& d
     return true;
 });
 
-tcp_callback.install([](client* person, std::string source_ip, std::string dest_ip, proxys::data* buf) -> bool {
-    printf("[%s -> %s] length: %d\n\n", source_ip.c_str(), dest_ip.c_str(), buf->length);
-    return true;
-});
-
 // enable callbacks treatment:
 server.callback_enable(proxys::callback_udp, &udp_callback);
-server.callback_enable(proxys::callback_tcp, &tcp_callback);
 ```
+###### Due to the peculiarities of the TCP/IP protocol, the dest IP and port cannot be changed on the go, because of this, the TCP callback has a different structure: ```(client* person, std::string source_ip, std::string dest_ip, proxys::data* buf)```
 
 ###### To-Do List:
 
