@@ -8,6 +8,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "utilities.hpp"
+
 namespace proxys {
     enum callbacks {
         callback_udp = 1,
@@ -48,10 +50,7 @@ namespace proxys {
 
 class client {
     public:
-        client(sockaddr_in addr, int socket_) {
-            tcp_data = { addr, socket_ };
-            personal_proxy_data = { -1, 0 };
-        };
+        client(sockaddr_in addr, int socket_) : tcp_data(addr, socket_) {};
         ~client() {
             if (tcp_data.second != -1) closesocket(tcp_data.second);
             if (personal_proxy_data.first != -1) closesocket(personal_proxy_data.first);
@@ -150,8 +149,8 @@ class client {
         unsigned short udp_forwarder_port = 0;
         proxys::states client_state = proxys::state_handshake;
 
-        std::pair <unsigned int, unsigned short> dst_data; // addr, port
-        std::pair <int, unsigned short> personal_proxy_data; // socket, socket port
+        std::pair <unsigned int, unsigned short> dst_data = { 0, 0 }; // addr, port
+        std::pair <int, unsigned short> personal_proxy_data = { -1, 0 }; // socket, socket port
         std::pair <sockaddr_in, int> tcp_data; // tcp socket addr, tcp socket
 };
 
@@ -200,12 +199,12 @@ class proxy : public utils
 
                 if (!local_ipv4) {
                     struct sockaddr_in local_addr = { 0 };
-                    if (getsockname(clientsocket, (struct sockaddr*)&local_addr, &sockaddr_size) != -1)
-                        local_ipv4 = local_addr.sin_addr.S_un.S_addr;
+                    if (getsockname(clientsocket, (struct sockaddr*)&local_addr, &sockaddr_size) != -1) local_ipv4 = local_addr.sin_addr.S_un.S_addr;
                 };
 
                 std::shared_ptr<client> person = std::make_shared<client>(client_addr, clientsocket);
                 std::thread([this, person] {network_tcp(person);}).detach();
+                clients.insert({ &*person, 1 });
             };
         };
 
@@ -346,6 +345,7 @@ class proxy : public utils
                         };
 
                         case 0x03: { // domain name
+                            if(request->data[0] > buf->length) return false;
                             char hostname[256] = { 0 };
                             memcpy(hostname, &request->data[1], request->data[0]);
 
@@ -401,14 +401,27 @@ class proxy : public utils
         };
 
         bool person_destroy(const std::shared_ptr<client>& person) {
-            if(!person) return false; 
+            if(!person) return false;
+            clients[&*person] = 0;
             person->~client();
             return true;
         };
 
-        int socket_ = -1;
+        auto get_clients() {
+            std::vector<client*> t;
+
+            for(const auto& [ c, s ] : clients) {
+                if(!c || s == 0) continue;
+                t.emplace_back(c);
+            };
+
+            return t;
+        };
+
+        long long socket_ = -1;
         unsigned int local_ipv4 = 0;
 
         std::pair<std::string, std::string> auth_data;
+        std::unordered_map<client*, unsigned int> clients;
         std::unordered_map<proxys::callbacks, callback<bool>*> callback_list;
 };

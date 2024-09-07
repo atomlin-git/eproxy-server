@@ -11,12 +11,7 @@ template<typename return_type>
 class callback {
     void* dest;
     public:
-        template <class T>
-            bool install(T idest) {
-                dest = idest;
-                return true;
-            }; 
-
+        template <class T> void install(T idest) { dest = idest; };
         template<typename... arguments>
             auto call(arguments&&... args) {
                 using type = return_type(*)(arguments...);
