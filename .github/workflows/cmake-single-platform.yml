@@ -1,4 +1,4 @@
-name: cmake-build
+name: cmake-windows-build
 
 on:
   push:
