@@ -5,7 +5,7 @@
 #include <vector>
 #include <sstream>
 
-static int sockaddr_size = 16; 
+static socklen_t sockaddr_size = 16; 
 
 template<typename return_type>
 class callback {
