@@ -273,21 +273,15 @@ class proxy : public utils
 
         bool proxyfy(const std::shared_ptr<client>& person, std::shared_ptr<proxys::data> buf) {
             if (!person || !buf) return false;
-            proxys::states state = person->get_state();
-
-            switch (state)
-            {
-                case proxys::state_handshake:
-                {
+            switch (person->get_state()) {
+                case proxys::state_handshake: {
                     if (buf->length < 3) return false;
                     proxys::handshake* handshake = (proxys::handshake*)(buf->data);
                     if(handshake->protocol_version != 0x05) return false;
 
                     unsigned char packet[2] = { 0x05, 0xFF };
-                    for (unsigned char i = 0; i < handshake->method_count; i++)
-                    {
-                        switch(handshake->auth_methods[i])
-                        {
+                    for (unsigned char i = 0; i < handshake->method_count; i++) {
+                        switch(handshake->auth_methods[i]) {
                             case 0x00: {
                                 if (auth_data.first.empty() || auth_data.second.empty()) {
                                     packet[1] = 0x00;
@@ -312,8 +306,7 @@ class proxy : public utils
                     return person->send_data(packet, 2);
                 };
 
-                case proxys::state_authorization_rfc1929:
-                {
+                case proxys::state_authorization_rfc1929: {
                     if (buf->data[0] != 0x01) return false;
                     if (buf->length != (3 + auth_data.first.size() + auth_data.second.size())) return false;
                     if (buf->data[1] != auth_data.first.size() || buf->data[buf->data[1] + 2] != auth_data.second.size()) return false;
@@ -328,8 +321,7 @@ class proxy : public utils
                     return person->send_data(packet, 2);
                 };
 
-                case proxys::state_connection_request:
-                {
+                case proxys::state_connection_request: {
                     if (buf->length < 10) return false;
 
                     proxys::request* request = (proxys::request*)(buf->data);
@@ -337,8 +329,7 @@ class proxy : public utils
                     if(request->command != 0x03 && request->command != 0x01) return false;
                     if(request->rsv != 0x00) return false;
 
-                    switch(request->address_type)
-                    {
+                    switch(request->address_type) {
                         case 0x01: { // ipv4
                             person->set_dst_addr(*(unsigned int*)&request->data[0]);
                             break;
@@ -384,8 +375,7 @@ class proxy : public utils
                     return person->send_data(packet, 10);
                 };
 
-                case proxys::state_tcp_proxyfy: // from client to server
-                {
+                case proxys::state_tcp_proxyfy: { // from client to server
                     if(const auto& callback = callback_list[proxys::callback_tcp]) {
                         if(!callback->call(&*person, dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.S_un.S_addr), &*buf)) return true;
                     };
