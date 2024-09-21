@@ -5,9 +5,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  release:
+    types: [created]
 
 env:
-  BUILD_TYPE: Release
+  BUILD_TYPE: RelWithDebInfo
 
 jobs:
   linux:
@@ -22,6 +24,12 @@ jobs:
     - name: build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
+    - name: upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+          name: eps-linux
+          path: build/eps
+
   windows:
     runs-on: windows-latest
 
@@ -31,3 +39,48 @@ jobs:
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
     - name: build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    - name: upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+          name: eps-windows
+          path: build/${{env.BUILD_TYPE}}/eps.exe
+
+  create_release:
+    needs: [linux, windows]
+    permissions: write-all
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: get short commit sha
+        id: get_sha
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: download linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: eps-linux
+          path: ./artifacts/linux
+
+      - name: download windows artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: eps-windows
+          path: ./artifacts/windows
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "${{ env.short_sha }}"
+          name: "Release"
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/linux/*
+            artifacts/windows/*
+          file_glob: true
+          generate_release_notes: true
