@@ -1,22 +1,20 @@
 #pragma once
 
+#include <any>
 #include <string>
 #include <format>
 #include <vector>
 #include <sstream>
+#include <functional>
 
 static socklen_t sockaddr_size = 16; 
 
-template<typename return_type>
+template<typename return_type, typename... arguments_type>
 class callback {
-    void* dest;
+    std::function<return_type(arguments_type...)> dest;
     public:
-        template <class T> void install(T idest) { dest = idest; };
-        template<typename... arguments>
-            auto call(arguments&&... args) {
-                using type = return_type(*)(arguments...);
-                return reinterpret_cast<type>(dest)(args...); 
-            };
+        void install(auto idest) { dest = idest; };
+        template<typename... arguments> auto call(arguments&&... args) const { return dest(args...); };
 };
 
 class utils {
