@@ -34,9 +34,9 @@ namespace proxys {
     };
 
     struct data {
-        unsigned int length;
+        unsigned int length = 0;
         unsigned char* data;
-        struct sockaddr_in addr;
+        struct sockaddr_in addr = { };
     };
 
     // proxy structures
@@ -159,6 +159,9 @@ class client {
         std::pair <sockaddr_in, int> tcp_data; // tcp socket addr, tcp socket
 };
 
+#define udp_callback_t bool, client*, unsigned int&, unsigned int&, unsigned short&, unsigned short&, proxys::data*
+#define tcp_callback_t bool, client*, std::string, std::string, proxys::data*
+#include <iostream>
 class proxy : public utils
 {
     public:
@@ -194,8 +197,8 @@ class proxy : public utils
             return true;
         };
 
-        bool callback_enable(proxys::callbacks type, callback<bool>* ptr) {
-            if(!ptr || callback_list[type]) return false;
+        bool callback_enable(proxys::callbacks type, std::any ptr) {
+            if(callback_list[type].has_value()) return false;
             callback_list[type] = ptr;
             return true;
         };
@@ -227,7 +230,7 @@ class proxy : public utils
             return person_destroy(person);
         };
 
-        bool personal_network(const std::shared_ptr<client>& person) { // The TCP or UDP stream in which we receive packets for forwarding
+        bool personal_network(const std::shared_ptr<client>& person) { // the TCP or UDP stream in which we receive packets for forwarding
             if (!person) return false;
 
             unsigned char packet_buffer[65536] = { 0x00, 0x00, 0x00, 0x01 };
@@ -237,9 +240,13 @@ class proxy : public utils
             std::shared_ptr<proxys::data> buf = 0;
 
             while (buf = person->read_personal()) {
-                if (state == proxys::state_tcp_proxyfy) { // request from server to client
-                    if (const auto& callback = callback_list[proxys::callback_tcp]) {
-                        if(!callback->call(&*person, dip_to_strip(person_binary_address), dip_to_strip(person->get_dst_data().first), &*buf)) continue;
+                if (state == proxys::state_tcp_proxyfy) { // request from client to server
+                    if(callback_list[proxys::callback_tcp].has_value()) {
+                        try {
+                            if(const auto& callback_ptr = std::any_cast<callback<tcp_callback_t>*>(callback_list[proxys::callback_tcp])) {
+                                if(!callback_ptr->call(&*person, this->dip_to_strip(person_binary_address), this->dip_to_strip(person->get_dst_data().first), &*buf)) continue;
+                            };
+                        } catch (...) {};
                     };
                     
                     if(person->send_data(buf->data, buf->length) <= 0) return person_destroy(person);
@@ -252,10 +259,14 @@ class proxy : public utils
                 unsigned int dst_addr = *(unsigned int*)&buf->data[4];
                 unsigned short dst_port = htons(*(unsigned short*)&buf->data[8]);
 
-                if (buf->addr.sin_addr.s_addr == person_binary_address) { // request from client to server (udp)
-                    if (buf->length <= 10) continue;
-                    if (const auto& callback = callback_list[proxys::callback_udp]) {
-                        if(!callback->call(&*person, src_addr, dst_addr, src_port, dst_port, &*buf)) continue;
+                if(buf->addr.sin_addr.s_addr == person_binary_address) { // request from client to server (udp)
+                    if(buf->length <= 10) continue;
+                    if(callback_list[proxys::callback_udp].has_value()) {
+                        try {
+                            if(const auto& callback_ptr = std::any_cast<callback<udp_callback_t>*>(callback_list[proxys::callback_udp])) {
+                                if(!callback_ptr->call(&*person, src_addr, dst_addr, src_port, dst_port, &*buf)) continue;
+                            };
+                        } catch (...) {};
                     };
 
                     person->set_udp_forwarder(htons(buf->addr.sin_port));
@@ -266,8 +277,12 @@ class proxy : public utils
                 //request server to client (udp)
 
                 unsigned short forwarder = person->get_udp_forwarder();
-                if(const auto& callback = callback_list[proxys::callback_udp]) {
-                    if(!callback->call(&*person, src_addr, person_binary_address, src_port, forwarder, &*buf)) continue;
+                if(callback_list[proxys::callback_udp].has_value()) {
+                    try {
+                        if(const auto& callback_ptr = std::any_cast<callback<udp_callback_t>*>(callback_list[proxys::callback_udp])) {
+                            if(!callback_ptr->call(&*person, src_addr, person_binary_address, src_port, forwarder, &*buf)) continue;
+                        };
+                    } catch (...) {};
                 };
 
                 *(unsigned int*)&packet_buffer[4] = src_addr;
@@ -385,8 +400,12 @@ class proxy : public utils
                 };
 
                 case proxys::state_tcp_proxyfy: { // from client to server
-                    if(const auto& callback = callback_list[proxys::callback_tcp]) {
-                        if(!callback->call(&*person, dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.s_addr), &*buf)) return true;
+                    if(callback_list[proxys::callback_tcp].has_value()) {
+                        try {
+                            if(const auto& callback_ptr = std::any_cast<callback<tcp_callback_t>*>(callback_list[proxys::callback_tcp])) {
+                                if(!callback_ptr->call(&*person, dip_to_strip(person->get_dst_data().first), dip_to_strip(person->get_tcp_data().first.sin_addr.s_addr), &*buf)) return true;
+                            };
+                        } catch (...) {};
                     };
 
                     if(person->send_personal(buf->data, buf->length, person->get_dst_data().first, person->get_dst_data().second) <= 0) return person_destroy(person);
@@ -422,5 +441,5 @@ class proxy : public utils
 
         std::pair<std::string, std::string> auth_data;
         std::unordered_map<client*, unsigned int> clients;
-        std::unordered_map<proxys::callbacks, callback<bool>*> callback_list;
+        std::unordered_map<proxys::callbacks, std::any> callback_list;
 };
