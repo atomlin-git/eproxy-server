@@ -1,13 +1,13 @@
-###### simple and easy socks5 proxy server, which supports TCP and UDP commands; <br>
+###### simple cross-platform socks5 proxy server, which supports TCP and UDP commands, and can work how library <br>
 
 ###### callbacks use example:
 
 ```cpp
 // announce callbacks:
-callback<bool> udp_callback;
+callback<udp_callback_t> udp_callback;
 
 // install detour functions:
-udp_callback.install([](client* person, unsigned int& source_ip, unsigned int& dest_ip, unsigned short& source_port, unsigned short& dest_port, proxys::data* buf) -> bool {
+udp_callback.install([&](client* person, unsigned int& source_ip, unsigned int& dest_ip, unsigned short& source_port, unsigned short& dest_port, proxys::data* buf) -> bool {
     printf("[%s -> %s | %d -> %d] length: %d\n\n", utils::dip_to_strip(source_ip).c_str(), utils::dip_to_strip(dest_ip).c_str(), source_port, dest_port, buf->length);
     return true;
 });
@@ -20,12 +20,11 @@ server.callback_enable(proxys::callback_udp, &udp_callback);
 <hr>
 
 ###### known issues:
-###### — small memory leak when the connection to the proxied object does not break; <br>
+> *small memory leak when the connection to the proxied object does not break* <br>
 
 <hr>
 
 ###### todo list:
-
-###### — bind command support;
-###### — support ipv6;
-###### — backward compatibility with socsk4;
+> *bind command support* <br>
+> *support ipv6* <br>
+> *backward compatibility with socsk4* <br>
