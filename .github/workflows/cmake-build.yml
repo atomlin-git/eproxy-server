@@ -46,6 +46,7 @@ jobs:
           path: build/${{env.BUILD_TYPE}}/eps.exe
 
   create_release:
+    if: github.event_name != 'pull_request'
     needs: [linux, windows]
     permissions: write-all
     runs-on: ubuntu-latest
