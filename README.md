@@ -16,6 +16,7 @@ udp_callback.install([&](client* person, unsigned int& source_ip, unsigned int& 
 server.callback_enable(proxys::callback_udp, &udp_callback);
 ```
 ###### due to the peculiarities of the TCP/IP protocol, the dest IP and port cannot be changed on the go, because of this, the TCP callback has a different structure: ```(client* person, std::string source_ip, std::string dest_ip, proxys::data* buf)```
+###### one-header solution available in "one-header" branch
 
 <hr>
 
