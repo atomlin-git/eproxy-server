@@ -1,4 +1,4 @@
-###### simple cross-platform socks5 proxy server, which supports TCP and UDP commands, and can work how library <br>
+###### simple cross-platform one header socks5 proxy server, which supports TCP and UDP commands <br>
 
 ###### callbacks use example:
 
@@ -18,13 +18,3 @@ server.callback_enable(proxys::callback_udp, &udp_callback);
 ###### due to the peculiarities of the TCP/IP protocol, the dest IP and port cannot be changed on the go, because of this, the TCP callback has a different structure: ```(client* person, std::string source_ip, std::string dest_ip, proxys::data* buf)```
 
 <hr>
-
-###### known issues:
-> *small memory leak when the connection to the proxied object does not break* <br>
-
-<hr>
-
-###### todo list:
-> *bind command support* <br>
-> *support ipv6* <br>
-> *backward compatibility with socsk4* <br>
