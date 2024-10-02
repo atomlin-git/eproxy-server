@@ -161,8 +161,8 @@ class client {
 
 #define udp_callback_t bool, client*, unsigned int&, unsigned int&, unsigned short&, unsigned short&, proxys::data*
 #define tcp_callback_t bool, client*, std::string, std::string, proxys::data*
-#include <iostream>
-class proxy : public utils
+
+class proxy : virtual utils
 {
     public:
         proxy(unsigned short port)  {
