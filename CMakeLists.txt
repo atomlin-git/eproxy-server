@@ -10,4 +10,4 @@ endif()
 
 target_sources(${PROJECT_NAME} PRIVATE source/main.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE includes)
-target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
