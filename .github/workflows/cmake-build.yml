@@ -78,8 +78,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: "${{ github.run_id }}.${{ github.run_number }}-${{ github.run_attempt }}"
-          name: "auto-release [${{ github.run_id }}.${{ github.run_number }}-${{ github.run_attempt }}] [${{ env.short_sha }}]"
+          tag_name: "${{ env.short_sha }}-${{ github.run_number }}.${{ github.run_attempt }}"
+          name: "auto-release"
+          body: "current version: ${{ env.short_sha }}-${{ github.run_number }}.${{ github.run_attempt }}"
           draft: false
           prerelease: false
           files: |
