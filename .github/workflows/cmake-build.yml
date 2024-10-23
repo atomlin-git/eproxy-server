@@ -3,10 +3,14 @@ name: cmake-build
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - "README.md"
   pull_request:
     branches: [ "main" ]
   release:
     types: [created]
+    paths-ignore:
+      - ".github"
 
 env:
   BUILD_TYPE: RelWithDebInfo
