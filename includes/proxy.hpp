@@ -25,6 +25,12 @@ namespace proxys {
         callback_tcp = 2,
     };
 
+    enum types {
+        socks4 = 0x01,
+        socks5 = 0x02,
+        http = 0x04,
+    };
+
     enum states {
         state_handshake = 0,
         state_connection_request = 1,
@@ -162,10 +168,9 @@ class client {
 #define udp_callback_t bool, client*, unsigned int&, unsigned int&, unsigned short&, unsigned short&, proxys::data*
 #define tcp_callback_t bool, client*, std::string, std::string, proxys::data*
 
-class proxy : virtual utils
-{
+class proxy : virtual utils {
     public:
-        proxy(unsigned short port)  {
+        proxy(unsigned short port, unsigned int proxy_type_ = proxys::socks5) : proxy_type((proxys::types)proxy_type_) {
             #ifdef _WIN32
                 WSADATA wsaData = { 0 };
                 WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -178,8 +183,8 @@ class proxy : virtual utils
             sockaddr.sin_addr.s_addr = INADDR_ANY;
             sockaddr.sin_port = htons(port);
 
-            if (bind(socket_, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
-            if (listen(socket_, SOMAXCONN) == -1) return;
+            if(bind(socket_, (struct sockaddr*)&sockaddr, sockaddr_size) == -1) return;
+            if(listen(socket_, SOMAXCONN) == -1) return;
 
             std::thread([&]{accept_clients();}).detach();
         };
@@ -301,7 +306,40 @@ class proxy : virtual utils
                 case proxys::state_handshake: {
                     if (buf->length < 3) return false;
                     proxys::handshake* handshake = (proxys::handshake*)(buf->data);
-                    if(handshake->protocol_version != 0x05) return false;
+                
+                    if(handshake->protocol_version == 0x04 && (this->proxy_type & proxys::socks4)) {
+                        switch(handshake->method_count) {
+                            case 0x01: {
+                                if(buf->length < 8) return false;
+
+                                person->set_dst_port(*(unsigned short*)&buf->data[2]);
+                                person->set_dst_addr(*(unsigned int*)&buf->data[4]);
+
+                                if (!person->init_personal(0)) {
+                                    unsigned char error[8] = { 0x00, 0x5B };
+                                    person->send_data(error, 8);
+                                    return false;
+                                };
+
+                                unsigned char packet[8] = { 0x00, 0x5A };
+                                *(unsigned short*)&packet[2] = htons(person->get_proxy_data().second);
+                                *(unsigned int*)&packet[4] = local_ipv4;
+
+                                person->update_state(proxys::state_tcp_proxyfy);
+                                std::thread([this, person] {personal_network(person); }).detach();
+
+                                return person->send_data(packet, 8);
+                            };
+
+                            default: { // bind already not supported
+                                return false;
+                            };
+                        };
+
+                        return true;
+                    };
+
+                    if(this->proxy_type & proxys::http && !(this->proxy_type & proxys::socks5)) return false;
 
                     unsigned char packet[2] = { 0x05, 0xFF };
                     for (unsigned char i = 0; i < handshake->method_count; i++) {
@@ -395,7 +433,7 @@ class proxy : virtual utils
                     unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
                     *(unsigned int*)&packet[4] = local_ipv4;
                     *(unsigned short*)&packet[8] = htons(person->get_proxy_data().second);
-                    
+
                     return person->send_data(packet, 10);
                 };
 
@@ -438,6 +476,7 @@ class proxy : virtual utils
 
         long long socket_ = -1;
         unsigned int local_ipv4 = 0;
+        proxys::types proxy_type = proxys::socks5;
 
         std::pair<std::string, std::string> auth_data;
         std::unordered_map<client*, unsigned int> clients;
