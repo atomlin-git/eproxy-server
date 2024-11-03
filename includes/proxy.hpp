@@ -339,7 +339,7 @@ class proxy : virtual utils {
                         return true;
                     };
 
-                    if(this->proxy_type & proxys::http && !(this->proxy_type & proxys::socks5)) return false;
+                    if(handshake->protocol_version != 0x05 || !(this->proxy_type & proxys::socks5)) return false;
 
                     unsigned char packet[2] = { 0x05, 0xFF };
                     for (unsigned char i = 0; i < handshake->method_count; i++) {
