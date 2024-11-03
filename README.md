@@ -28,5 +28,4 @@ server.callback_enable(proxys::callback_udp, &udp_callback);
 ###### todo list:
 > *bind command support* <br>
 > *support ipv6* <br>
-> *backward compatibility with socsk4* <br>
 > *add more comments (or write small doc) to internal functional* <br>
