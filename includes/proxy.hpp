@@ -261,6 +261,9 @@ class proxy : virtual utils
 
                 if(buf->addr.sin_addr.s_addr == person_binary_address) { // request from client to server (udp)
                     if(buf->length <= 10) continue;
+                    buf->data = buf->data + 10;
+                    buf->length -= 10;
+                    
                     if(callback_list[proxys::callback_udp].has_value()) {
                         try {
                             if(const auto& callback_ptr = std::any_cast<callback<udp_callback_t>*>(callback_list[proxys::callback_udp])) {
@@ -270,7 +273,7 @@ class proxy : virtual utils
                     };
 
                     person->set_udp_forwarder(htons(buf->addr.sin_port));
-                    person->send_personal(buf->data + 10, buf->length - 10, dst_addr, dst_port);
+                    person->send_personal(buf->data, buf->length, dst_addr, dst_port);
                     continue;
                 };
                 
