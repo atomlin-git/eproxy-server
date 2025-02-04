@@ -240,7 +240,7 @@ class proxy : virtual utils
             std::shared_ptr<proxys::data> buf = 0;
 
             while (buf = person->read_personal()) {
-                if (state == proxys::state_tcp_proxyfy) { // request from client to server
+                if (state == proxys::state_tcp_proxyfy) { // request from server to client
                     if(callback_list[proxys::callback_tcp].has_value()) {
                         try {
                             if(const auto& callback_ptr = std::any_cast<callback<tcp_callback_t>*>(callback_list[proxys::callback_tcp])) {
