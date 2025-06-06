@@ -389,7 +389,7 @@ namespace ep {
                             return false;
                         };
 
-                        person->update_state(*reinterpret_cast<ep::state_t*>(is_udp + 10));
+                        person->update_state(static_cast<ep::state_t>(is_udp + 10));
                         std::thread([this, person] {personal_network(person); }).detach();
 
                         unsigned char packet[10] = { 0x05, 0x00, 0x00, 0x01 };
