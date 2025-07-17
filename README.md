@@ -26,3 +26,7 @@ proxy.callback_enable(ep::callback_t::tcp, &tcp_callback);
 
 ###### todo list:
 > *add more comments (or write small doc) to internal functional* <br>
+
+
+
+# its not used, does not help, and does not imply the possibility of bypassing blocking and using for selfish purposes
