@@ -11,3 +11,25 @@ if(${EPS_LIB})
     target_include_directories(${PROJECT_NAME} PRIVATE includes)
     target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 endif()
+
+target_compile_options(${PROJECT_NAME} PRIVATE INTERFACE
+    -fstack-protector-strong        
+    -D_FORTIFY_SOURCE=2             
+    -fPIE                           
+)
+
+if(NOT MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE INTERFACE -pie)
+endif()
+
+option(ENABLE_ASAN "Enable Address Sanitizer" TRUE)
+if(ENABLE_ASAN)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=address,undefined)
+    target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=address,undefined)
+endif()
+
+option(ENABLE_TSAN "Enable Thread Sanitizer" TRUE)
+if(ENABLE_TSAN)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=thread)
+    target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=thread)
+endif()

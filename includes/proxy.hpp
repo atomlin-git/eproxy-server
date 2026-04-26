@@ -285,7 +285,8 @@ namespace ep {
 
                             case 0x03: { // hostname
                                 char hostname[256] = { 0 };
-                                if (buf->length < 4 + 1 + buf->data[4] + 2) return false;
+                                if (!buf->data[4]) continue;
+                                if (buf->length < 4 + 1 + buf->data[4] + 2) continue;
                                 memcpy(hostname, &buf->data[5], buf->data[4]);
                                 dst_addr = hostname_to_ip(hostname);
                                 
