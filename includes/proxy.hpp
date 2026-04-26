@@ -171,7 +171,7 @@ namespace ep {
                 #ifdef _WIN32
                     WSADATA wsaData = { 0 };
                     WSAStartup(MAKEWORD(2, 2), &wsaData);
-                #else
+                #elif defined(SIG_IGN)
                     signal(SIGPIPE, SIG_IGN);
                 #endif
 
