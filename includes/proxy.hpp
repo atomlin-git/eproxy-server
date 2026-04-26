@@ -1,25 +1,16 @@
 #pragma once
 
+#include <any>
+#include <mutex>
 #include <thread>
 #include <string>
-#include <unordered_map>
-
-#ifdef _WIN32
-    #include <ws2tcpip.h>
-    #include <winsock.h>
-    #pragma comment (lib, "ws2_32.lib")
-#elif __linux__
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <cstring>
-    #include <netdb.h>
-
-    #define closesocket(s) close(s)
-#endif
 
 #include "utilities.hpp"
 
 namespace ep {
+    constexpr auto debuggie = false;
+    constexpr auto max_clients = 256; // TODO
+
     enum class callback_t { 
         udp = 1,
         tcp = 2,
@@ -34,9 +25,14 @@ namespace ep {
     };
 
     struct buffer {
-        unsigned int length = 0;
-        unsigned char* data = 0;
-        struct sockaddr_in addr = {};
+        unsigned int length{0};
+        unsigned char* data{0};
+        unsigned char* allocated{0};
+        struct sockaddr_in addr{};
+
+        ~buffer() {
+            delete [] allocated;
+        };
     };
 
     // proxy structures
@@ -66,13 +62,15 @@ namespace ep {
 
             std::shared_ptr<ep::buffer> read() {
                 if (tcp_data.second == -1) return 0;
-                unsigned char buffer[4096];
+                unsigned char tmp[4096];
 
-                auto length = recv(tcp_data.second, (char*)buffer, 4096, 0);
+                auto length = recv(tcp_data.second, reinterpret_cast<char*>(tmp), 4096, 0);
                 if (length <= 0) return 0;
 
                 auto buf = std::make_shared<ep::buffer>();
-                buf->data = buffer;
+                buf->allocated = new unsigned char[length];
+                memcpy(buf->allocated, tmp, length);
+                buf->data = buf->allocated;
                 buf->length = length;
                 return buf;
             };
@@ -80,18 +78,20 @@ namespace ep {
             std::shared_ptr<ep::buffer> read_personal() {
                 if(personal_proxy_data.first == -1) return 0;
 
-                unsigned char buffer[4096] = { 0 };
+                unsigned char tmp[4096] = { 0 };
                 struct sockaddr_in client  = { 0 };
                 int length = -1;
 
                 switch(client_state) {
-                    case ep::state_t::tcp_proxyfy: length = recv(personal_proxy_data.first, (char*)buffer, 4096, 0); break;
-                    case ep::state_t::udp_proxyfy: length = recvfrom(personal_proxy_data.first, (char*)buffer, 4096, 0, (sockaddr*)&client, &sockaddr_size); break;
+                    case ep::state_t::tcp_proxyfy: length = recv(personal_proxy_data.first, (char*)tmp, 4096, 0); break;
+                    case ep::state_t::udp_proxyfy: length = recvfrom(personal_proxy_data.first, (char*)tmp, 4096, 0, (sockaddr*)&client, &sockaddr_size); break;
                 };      
                 if(length <= 0) return 0;
 
                 auto buf = std::make_shared<ep::buffer>();
-                buf->data = buffer;
+                buf->allocated = new unsigned char[length];
+                memcpy(buf->allocated, tmp, length);
+                buf->data = buf->allocated;
                 buf->length = length;
                 buf->addr = client;
 
@@ -138,9 +138,13 @@ namespace ep {
             void set_dst_port(unsigned short port) { dst_data.second = port; };
             void set_dst_addr(unsigned int addr) { dst_data.first = addr; };
 
+            void set_udp_answer_header(uint8_t* data, uint32_t length) { udp_answer_header.assign(data, data + length); };
+
             void set_udp_forwarder(int udp_forwarder_port_) { udp_forwarder_port = udp_forwarder_port_; };
             void update_state(ep::state_t state) { client_state = state; };
 
+            [[nodiscard]] auto get_udp_answer_header() { return std::make_pair<uint8_t*, uint32_t>(udp_answer_header.data(), udp_answer_header.size()); };
+            
             unsigned short get_udp_forwarder() { return udp_forwarder_port; };
             ep::state_t get_state() { return client_state; };
 
@@ -148,6 +152,7 @@ namespace ep {
             auto get_dst_data() { return dst_data; };
             auto get_tcp_data() { return tcp_data; };
         private:
+            std::vector<uint8_t> udp_answer_header{};
             unsigned short udp_forwarder_port = 0;
             ep::state_t client_state = ep::state_t::handshake;
 
@@ -166,6 +171,8 @@ namespace ep {
                 #ifdef _WIN32
                     WSADATA wsaData = { 0 };
                     WSAStartup(MAKEWORD(2, 2), &wsaData);
+                #else
+                    signal(SIGPIPE, SIG_IGN);
                 #endif
 
                 if ((socket_ = socket(AF_INET, SOCK_STREAM, 0)) == -1) return;
@@ -213,7 +220,11 @@ namespace ep {
 
                     std::shared_ptr<ep::client> person = std::make_shared<ep::client>(client_addr, clientsocket);
                     std::thread([this, person] {network_tcp(person);}).detach();
-                    clients.insert({ &*person, 1 });
+
+                    //{
+                        //std::lock_guard<std::mutex> lock(clients_mutex);
+                        clients.insert({ &*person, 1 });
+                    //};
                 };
             };
 
@@ -253,20 +264,56 @@ namespace ep {
                     unsigned int src_addr = buf->addr.sin_addr.s_addr;
                     unsigned short src_port = htons(buf->addr.sin_port);
 
-                    unsigned int dst_addr = *(unsigned int*)&buf->data[4];
-                    unsigned short dst_port = htons(*(unsigned short*)&buf->data[8]);
-
                     if(buf->addr.sin_addr.s_addr == person_binary_address) { // client -> server (udp)
-                        if(buf->length <= 10) continue;
-                        buf->data = buf->data + 10;
-                        buf->length -= 10;
-                        
+                        if(buf->length < 6) continue;
+                        if(*(unsigned short*)&buf->data[0] != 0) continue; // bad struct
+
+                        unsigned int dst_addr = 0;
+                        unsigned short dst_port = 0;
+                        switch(buf->data[3]) {
+                            case 0x01: { // ipv4
+                                if(buf->length <= 10) continue;
+                                dst_addr = *(unsigned int*)&buf->data[4];
+                                dst_port = htons(*(unsigned short*)&buf->data[8]);
+                                person->set_udp_answer_header(buf->data, 10);
+                                
+                                buf->data = buf->data + 10;
+                                buf->length -= 10;
+                                
+                                break;
+                            };
+
+                            case 0x03: { // hostname
+                                char hostname[256] = { 0 };
+                                if (buf->length < 4 + 1 + buf->data[4] + 2) return false;
+                                memcpy(hostname, &buf->data[5], buf->data[4]);
+                                dst_addr = hostname_to_ip(hostname);
+                                
+                                if(debuggie) {
+                                    printf("UDP [%p] resolve hostname: %s -> %d\n", person.get(), hostname, dst_addr);
+                                };
+
+                                if(!dst_addr) continue;
+                                dst_port = htons(*(unsigned short*)&buf->data[buf->data[4] + 5]);
+                                person->set_udp_answer_header(buf->data, (buf->data[4] + 7));
+                                buf->length = buf->length - (buf->data[4] + 7);
+                                buf->data = buf->data + (buf->data[4] + 7);
+                                break;
+                            };
+
+                            default: continue; // ipv6 or unknown
+                        };
+
                         if(callback_list[ep::callback_t::udp].has_value()) {
                             try {
                                 if(const auto& callback_ptr = std::any_cast<ep::callback<udp_callback_t>*>(callback_list[ep::callback_t::udp])) {
                                     if(!callback_ptr->call(&*person, src_addr, dst_addr, src_port, dst_port, &*buf)) continue;
                                 };
                             } catch (...) {};
+                        };
+
+                        if(debuggie) {
+                            printf("%p (client->server) %d port (s: %d)\n", person.get(), dst_port, htons(buf->addr.sin_port));
                         };
 
                         person->set_udp_forwarder(htons(buf->addr.sin_port));
@@ -277,6 +324,11 @@ namespace ep {
                     //server -> client (udp)
 
                     unsigned short forwarder = person->get_udp_forwarder();
+
+                    if(debuggie) {
+                        printf("%p (client->server) %d port (s: %d)\n", person.get(), forwarder, src_port);
+                    };
+
                     if(callback_list[ep::callback_t::udp].has_value()) {
                         try {
                             if(const auto& callback_ptr = std::any_cast<ep::callback<udp_callback_t>*>(callback_list[ep::callback_t::udp])) {
@@ -285,11 +337,14 @@ namespace ep {
                         } catch (...) {};
                     };
 
-                    *(unsigned int*)&packet_buffer[4] = src_addr;
-                    *(unsigned short*)&packet_buffer[8] = htons(src_port);
+                    auto [header, header_len] = person->get_udp_answer_header();
 
-                    memcpy(&packet_buffer[10], buf->data, buf->length);
-                    person->send_personal(packet_buffer, buf->length + 10, person_binary_address, forwarder);
+                    //*(unsigned int*)&packet_buffer[4] = src_addr;
+                    //*(unsigned short*)&packet_buffer[8] = htons(src_port);
+
+                    memcpy(packet_buffer, header, header_len);
+                    memcpy(&packet_buffer[header_len], buf->data, buf->length);
+                    person->send_personal(packet_buffer, buf->length + header_len, person_binary_address, forwarder);
                 };
 
                 return person_destroy(person);
@@ -302,6 +357,7 @@ namespace ep {
                         if(buf->length < 3) return false;
                         auto handshake = reinterpret_cast<ep::handshake*>(buf->data);
                         if(handshake->protocol_version != 0x05) return false;
+                        if(buf->length < 2 + handshake->method_count) return false;
 
                         unsigned char packet[2] = { 0x05, 0xFF };
                         for(unsigned char i = 0; i < handshake->method_count; i++) {
@@ -315,6 +371,7 @@ namespace ep {
 
                                     break;
                                 };
+
                                 case 0x02: {
                                     if (!auth_data.first.empty() && !auth_data.second.empty()) {
                                         packet[1] = 0x02;
@@ -360,20 +417,13 @@ namespace ep {
                             };
 
                             case 0x03: { // domain name
-                                if(request->data[0] > buf->length) return false;
                                 char hostname[256] = { 0 };
+                                if (buf->length < 4 + 1 + request->data[0] + 2) return false;
                                 memcpy(hostname, &request->data[1], request->data[0]);
 
-                                struct addrinfo hints, *res = 0;
-                                memset(&hints, 0, sizeof(hints));
-                                hints.ai_family = AF_INET;
-                                hints.ai_socktype = SOCK_STREAM;
-
-                                if (getaddrinfo(hostname, NULL, &hints, &res) != 0) return false;
-                                
-                                struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
-                                person->set_dst_addr((unsigned int)ipv4->sin_addr.s_addr);
-                                freeaddrinfo(res);
+                                auto ip = hostname_to_ip(hostname);
+                                if(!ip) return false;
+                                person->set_dst_addr(ip);
                                 break;
                             };
 
@@ -420,12 +470,14 @@ namespace ep {
 
             bool person_destroy(const std::shared_ptr<ep::client>& person) {
                 if(!person) return false;
+                //std::lock_guard<std::mutex> lock(clients_mutex);
+                //clients.erase(person.get());
                 clients[&*person] = 0;
-                person->~client();
+                //person->~client();
                 return true;
             };
 
-            auto get_clients() {
+            auto get_clients() = delete;/*{
                 std::vector<ep::client*> t;
 
                 for(const auto& [ c, s ] : clients) {
@@ -434,11 +486,12 @@ namespace ep {
                 };
 
                 return t;
-            };
+            };*/
 
-            long long socket_ = -1;
-            unsigned int local_ipv4 = 0;
+            long long socket_{-1};
+            unsigned int local_ipv4{0};
 
+            std::mutex clients_mutex{};
             std::pair<std::string, std::string> auth_data;
             std::unordered_map<ep::client*, unsigned int> clients;
             std::unordered_map<ep::callback_t, std::any> callback_list;

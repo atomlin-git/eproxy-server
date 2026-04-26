@@ -1,11 +1,24 @@
 #pragma once
 
-#include <any>
 #include <string>
 #include <format>
 #include <vector>
 #include <sstream>
 #include <functional>
+
+#ifdef _WIN32
+    #include <ws2tcpip.h>
+    #include <winsock.h>
+    #pragma comment (lib, "ws2_32.lib")
+#else
+    #include <unistd.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <cstring>
+    #include <netdb.h>
+
+    #define closesocket(s) close(s)
+#endif
 
 static socklen_t sockaddr_size = 16; 
 
@@ -20,6 +33,20 @@ namespace ep {
 
     class utils {
         public:
+            static uint32_t hostname_to_ip(std::string host) {
+                struct addrinfo hints, *res = 0;
+                memset(&hints, 0, sizeof(hints));
+                hints.ai_family = AF_INET;
+                hints.ai_socktype = SOCK_STREAM;
+
+                if (getaddrinfo(host.c_str(), 0, &hints, &res) != 0) return 0;
+                
+                struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
+                auto ip = static_cast<uint32_t>(ipv4->sin_addr.s_addr);
+                freeaddrinfo(res);
+                return ip;
+            };
+
             static auto dip_to_strip(unsigned int decimal_ip) { 
                 return std::format("{}.{}.{}.{}", (unsigned char)(decimal_ip & 0x000000ff), (unsigned char)((decimal_ip & 0x0000ff00) >> 8), (unsigned char)((decimal_ip & 0x00ff0000) >> 16), (unsigned char)((decimal_ip & 0xff000000) >> 24));
             };

@@ -25,6 +25,10 @@ proxy.callback_enable(ep::callback_t::tcp, &tcp_callback);
 <hr>
 
 ###### todo list:
+> *rewrite thread logic*
+> *rewrite ep::buffer to std::vector*
+> *sync clients, method to get*
+> *method to sent packets from callbacks*
 > *add more comments (or write small doc) to internal functional* <br>
 
 
