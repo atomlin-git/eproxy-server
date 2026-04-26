@@ -308,7 +308,7 @@ namespace ep {
                         if(callback_list[ep::callback_t::udp].has_value()) {
                             try {
                                 if(const auto& callback_ptr = std::any_cast<ep::callback<udp_callback_t>*>(callback_list[ep::callback_t::udp])) {
-                                    if(!callback_ptr->call(&*person, src_addr, dst_addr, src_port, dst_port, &*buf)) continue;
+                                    if(!callback_ptr->call(&*person, src_addr, dst_addr, person->get_proxy_data().second, dst_port, &*buf)) continue;
                                 };
                             } catch (...) {};
                         };
